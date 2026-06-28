@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using UnityEngine;
 using UnityEngine.Networking;
 
 namespace DVRouteManager.CommsRadio
@@ -24,8 +25,19 @@ namespace DVRouteManager.CommsRadio
         {
             return new List<MenuItem>()
             {
+<<<<<<< Updated upstream
                 new MenuItem("From last used locomotive\nto job destination", "Build route", () => CreateJobRoute(true)),
                 new MenuItem("From last used locomotive\nto specific track", "Select", () => CreateTrackRoute()),
+=======
+<<<<<<< Updated upstream
+                new MenuItem("From last used locomotion\nto job destination", "Build route", () => CreateJobRoute(true)),
+                new MenuItem("From last used locomotion\nto specific track", "Select", () => CreateTrackRoute()),
+=======
+                new MenuItem("From last used locomotive\nto job destination", "Build route", () => CreateJobRoute(true)),
+                new MenuItem("From last used locomotive\nto specific track", "Select", () => CreateTrackRoute()),
+                new MenuItem("From last used locomotive\nto free track at town", "Select", () => CreateFreeTownRoute()),
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
                 new MenuItem("From job cars\nto job destination", "Build route", () => CreateJobRoute(false)),
                 GetExitMenu()
             };
@@ -44,6 +56,58 @@ namespace DVRouteManager.CommsRadio
                             new CommandArg() { String = "loco" },
                             new CommandArg() { String = "to" },
                             new CommandArg() { String = trackPage.SelectedTrack }
+                };
+                BuildRoute(args, this);
+            });
+        }
+
+        private void CreateFreeTownRoute()
+        {
+            SetSubPage(typeof(SelectTownPage), null, (townPage) =>
+            {
+                string townCode = (townPage as SelectTownPage).SelectedTownCode;
+
+                TrainCar loco = PlayerManager.LastLoco;
+                if (loco == null)
+                {
+                    RedirectToMessagePage("No locomotive", "MENU");
+                    return;
+                }
+
+                HashSet<string> carsToIgnore = new HashSet<string>(
+                    loco.trainset.cars.Select(c => c.logicCar.ID));
+
+                Vector3 locoPos = loco.transform.position;
+
+                // Find all free tracks at this town, ordered by distance from loco
+                var candidates = RailTrackRegistryBase.RailTracks
+                    .Where(rt =>
+                    {
+                        if (rt == null) return false;
+                        Track logic = rt.LogicTrack();
+                        if (logic == null) return false;
+                        string id = logic.ID.FullID;
+                        return id.StartsWith(townCode + SelectTrackPage.TRACK_PARTS_SEPARATOR)
+                            && logic.IsFree(carsToIgnore);
+                    })
+                    .OrderBy(rt => (rt.transform.position - locoPos).sqrMagnitude)
+                    .ToList();
+
+                if (candidates.Count == 0)
+                {
+                    RedirectToMessagePage($"No free tracks at {townCode}", "MENU");
+                    return;
+                }
+
+                string targetTrackId = candidates[0].LogicTrack().ID.FullID;
+                Terminal.Log($"Routing to nearest free track at {townCode}: {targetTrackId}");
+
+                CommandArg[] args = new CommandArg[]
+                {
+                    new CommandArg() { String = "from" },
+                    new CommandArg() { String = "loco" },
+                    new CommandArg() { String = "to" },
+                    new CommandArg() { String = targetTrackId }
                 };
                 BuildRoute(args, this);
             });

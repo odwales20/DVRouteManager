@@ -2,6 +2,7 @@ using CommandTerminal;
 using CommsRadioAPI;
 using DV;
 using DV.Logic.Job;
+using DV.ThingTypes;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -40,6 +41,7 @@ namespace DVRouteManager.CommsRadio
         {
             "New route",
             "Active route",
+            "Route to refuel",
             "Loco AI",
             "Settings",
             "< Back"
@@ -79,9 +81,10 @@ namespace DVRouteManager.CommsRadio
                             if (Module.ActiveRoute.IsSet)
                                 return new RouteManagerRouteInfoState();
                             return new RouteManagerMessageState("No active route", new RouteManagerMainMenuState());
-                        case 2: return new RouteManagerLocoAIMenuState();
-                        case 3: return new RouteManagerSettingsState();
-                        case 4: return new RouteManagerInitialState();
+                        case 2: return new RouteManagerRefuelMenuState();
+                        case 3: return new RouteManagerLocoAIMenuState();
+                        case 4: return new RouteManagerSettingsState();
+                        case 5: return new RouteManagerInitialState();
                         default: return new RouteManagerInitialState();
                     }
                 default:
@@ -99,6 +102,7 @@ namespace DVRouteManager.CommsRadio
         {
             "Loco → job destination",
             "Loco → specific track",
+            "Loco → free track at town",
             "Job cars → job destination",
             "< Back"
         };
@@ -128,8 +132,9 @@ namespace DVRouteManager.CommsRadio
                     {
                         case 0: return BuildJobRoute(fromLoco: true);
                         case 1: return new RouteManagerSelectTrackState(new RouteManagerNewRouteState());
-                        case 2: return BuildJobRoute(fromLoco: false);
-                        case 3: return new RouteManagerMainMenuState();
+                        case 2: return new RouteManagerSelectTownState();
+                        case 3: return BuildJobRoute(fromLoco: false);
+                        case 4: return new RouteManagerMainMenuState();
                         default: return new RouteManagerMainMenuState();
                     }
                 default:
@@ -868,6 +873,219 @@ namespace DVRouteManager.CommsRadio
                 default:
                     return this;
             }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  Refuel menu — pick resource type, route to nearest station
+    // ─────────────────────────────────────────────────────────────
+    public class RouteManagerRefuelMenuState : AStateBehaviour
+    {
+        private readonly string[] _items;
+        private readonly int _index;
+
+        public RouteManagerRefuelMenuState(int index = 0)
+            : base(BuildState(GetItems(), index))
+        {
+            _items = GetItems();
+            _index = Mathf.Clamp(index, 0, _items.Length - 1);
+        }
+
+        private static string[] GetItems()
+        {
+            TrainCar loco = PlayerManager.LastLoco;
+            if (loco == null) return new[] { "No loco", "< Back" };
+            string id = loco.carLivery?.parentType?.id ?? "";
+            bool isSteam = id.Contains("S060") || id.Contains("S282");
+            return isSteam
+                ? new[] { "Water", "Coal", "< Back" }
+                : new[] { "Diesel fuel", "< Back" };
+        }
+
+        private static CommsRadioState BuildState(string[] items, int index)
+        {
+            int i = Mathf.Clamp(index, 0, items.Length - 1);
+            return new CommsRadioState("REFUEL", items[i], "ROUTE",
+                LCDArrowState.Right, LEDState.Off, ButtonBehaviourType.Override);
+        }
+
+        public override AStateBehaviour OnAction(CommsRadioUtility utility, InputAction action)
+        {
+            switch (action)
+            {
+                case InputAction.Up:
+                    return new RouteManagerRefuelMenuState((_index + 1) % _items.Length);
+                case InputAction.Down:
+                    return new RouteManagerRefuelMenuState((_index - 1 + _items.Length) % _items.Length);
+                case InputAction.Activate:
+                    string selected = _items[_index];
+                    if (selected == "< Back" || selected == "No loco")
+                        return new RouteManagerMainMenuState();
+                    ResourceType resourceType;
+                    switch (selected)
+                    {
+                        case "Water": resourceType = ResourceType.Water; break;
+                        case "Coal":  resourceType = ResourceType.Coal;  break;
+                        default:      resourceType = ResourceType.Fuel;  break;
+                    }
+                    return RouteToRefuel(resourceType);
+                default:
+                    return this;
+            }
+        }
+
+        private static AStateBehaviour RouteToRefuel(ResourceType resourceType)
+        {
+            TrainCar loco = PlayerManager.LastLoco;
+            if (loco == null)
+                return new RouteManagerMessageState("No locomotive", new RouteManagerMainMenuState());
+
+            Vector3 locoPos = loco.transform.position;
+            var pits = UnityEngine.Object.FindObjectsOfType<PitStopStation>();
+            var candidates = new List<(float score, RailTrack track)>();
+
+            foreach (var pit in pits)
+            {
+                if (pit == null) continue;
+                var modules = pit.locoResourceModules;
+                if (modules?.resourceModules == null) continue;
+                if (!modules.resourceModules.Any(m => m != null && m.resourceType == resourceType)) continue;
+
+                Vector3 pitPos = pit.transform.position;
+                RailTrack nearest = RailTrackRegistryBase.RailTracks
+                    .Where(rt => rt != null && rt.LogicTrack() != null)
+                    .OrderBy(rt => (rt.transform.position - pitPos).sqrMagnitude)
+                    .FirstOrDefault();
+                if (nearest == null) continue;
+
+                float score = Vector3.Distance(locoPos, pitPos);
+                if (resourceType == ResourceType.Water &&
+                    !(nearest.inIsConnected && nearest.outIsConnected))
+                    score += 2000f;
+
+                candidates.Add((score, nearest));
+            }
+
+            if (candidates.Count == 0)
+                return new RouteManagerMessageState($"No {resourceType} station found", new RouteManagerMainMenuState());
+
+            string trackId = candidates.OrderBy(c => c.score).First().track.LogicTrack().ID.FullID;
+            Terminal.Log($"Routing to {resourceType} at {trackId}");
+
+            return new RouteManagerComputingState(new[]
+            {
+                new CommandArg { String = "from" },
+                new CommandArg { String = "loco" },
+                new CommandArg { String = "to" },
+                new CommandArg { String = trackId }
+            }, new RouteManagerMainMenuState());
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  Town selection — for routing to nearest free track at town
+    // ─────────────────────────────────────────────────────────────
+    public class RouteManagerSelectTownState : AStateBehaviour
+    {
+        private static readonly Dictionary<string, string> TownNames = new Dictionary<string, string>
+        {
+            { "HB",   "Harbor" },          { "GF",   "Goods factory" },
+            { "FF",   "Foods factory" },   { "OWN",  "Oil well north" },
+            { "OWC",  "Oil well central"}, { "CM",   "Coal mine" },
+            { "SM",   "Steel mill" },      { "CSW",  "City SW" },
+            { "IME",  "Iron ore mine E" }, { "IMW",  "Iron ore mine W" },
+            { "FRC",  "Forest central" },  { "FRS",  "Forest south" },
+            { "FM",   "Farm" },            { "MF",   "Machine factory" },
+            { "MB",   "Military base" },   { "SW",   "Sawmill" },
+            { "HMB",  "Harbor mil.base" }, { "MFMB", "MF mil.base" }
+        };
+
+        private readonly List<string> _codes;
+        private readonly int _index;
+
+        public RouteManagerSelectTownState(int index = 0, List<string> codes = null)
+            : base(BuildState(codes ?? LoadCodes(), index))
+        {
+            _codes = codes ?? LoadCodes();
+            _index = Mathf.Clamp(index, 0, Math.Max(0, _codes.Count - 1));
+        }
+
+        private static List<string> LoadCodes()
+        {
+            var list = RailTrackRegistryBase.RailTracks
+                .Select(rt => rt.LogicTrack()?.ID?.FullID ?? "")
+                .Where(id => !string.IsNullOrEmpty(id) && !id.StartsWith("#") && id.Contains("-"))
+                .Select(id => id.Substring(0, id.IndexOf('-')))
+                .Distinct()
+                .OrderBy(c => c)
+                .ToList();
+            list.Add("< Back");
+            return list;
+        }
+
+        private static CommsRadioState BuildState(List<string> codes, int index)
+        {
+            if (codes.Count == 0)
+                return new CommsRadioState("SELECT TOWN", "No towns found", "BACK");
+            int i = Mathf.Clamp(index, 0, codes.Count - 1);
+            string code = codes[i];
+            string display = code == "< Back" ? code :
+                (TownNames.TryGetValue(code, out string name) ? name : code);
+            return new CommsRadioState("SELECT TOWN", display, "SELECT",
+                LCDArrowState.Right, LEDState.Off, ButtonBehaviourType.Override);
+        }
+
+        public override AStateBehaviour OnAction(CommsRadioUtility utility, InputAction action)
+        {
+            if (_codes.Count == 0) return new RouteManagerNewRouteState();
+            switch (action)
+            {
+                case InputAction.Up:
+                    return new RouteManagerSelectTownState((_index + 1) % _codes.Count, _codes);
+                case InputAction.Down:
+                    return new RouteManagerSelectTownState((_index - 1 + _codes.Count) % _codes.Count, _codes);
+                case InputAction.Activate:
+                    string selected = _codes[_index];
+                    if (selected == "< Back") return new RouteManagerNewRouteState();
+                    return RouteToFreeTown(selected);
+                default:
+                    return this;
+            }
+        }
+
+        private static AStateBehaviour RouteToFreeTown(string townCode)
+        {
+            TrainCar loco = PlayerManager.LastLoco;
+            if (loco == null)
+                return new RouteManagerMessageState("No locomotive", new RouteManagerNewRouteState());
+
+            var ignore = new HashSet<string>(loco.trainset.cars.Select(c => c.logicCar.ID));
+            Vector3 locoPos = loco.transform.position;
+
+            RailTrack best = RailTrackRegistryBase.RailTracks
+                .Where(rt =>
+                {
+                    if (rt == null) return false;
+                    Track logic = rt.LogicTrack();
+                    if (logic == null) return false;
+                    return logic.ID.FullID.StartsWith(townCode + "-") && logic.IsFree(ignore);
+                })
+                .OrderBy(rt => (rt.transform.position - locoPos).sqrMagnitude)
+                .FirstOrDefault();
+
+            if (best == null)
+                return new RouteManagerMessageState($"No free tracks at {townCode}", new RouteManagerNewRouteState());
+
+            string trackId = best.LogicTrack().ID.FullID;
+            Terminal.Log($"Routing to free track at {townCode}: {trackId}");
+
+            return new RouteManagerComputingState(new[]
+            {
+                new CommandArg { String = "from" },
+                new CommandArg { String = "loco" },
+                new CommandArg { String = "to" },
+                new CommandArg { String = trackId }
+            }, new RouteManagerMainMenuState());
         }
     }
 
