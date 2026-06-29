@@ -2,6 +2,8 @@
 
 A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod that adds route management, automatic junction switching, cruise control, and autonomous AI driving via the Comms Radio.
 
+> **Forked from [WallyCZ/DVRouteManager](https://github.com/WallyCZ/DVRouteManager)** — original mod by Wally.
+
 ---
 
 ## Features
@@ -17,19 +19,20 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 ### Cruise Control
 - **PID speed controller** — smooth throttle/brake to hold a target speed
 - **DM3 automatic gear shifting** — shifts up at >800 RPM, down at <600 RPM, with a hard 70 km/h cap
-- **Steam loco support (S060 / S282)** — pressure-aware cutoff (0.5–0.75 forward based on steam chest pressure), pulse braking, smooth regulator/cutoff lerp
+- **Steam loco support (S060 / S282)** — pressure-aware cutoff, pulse braking, smooth regulator/cutoff lerp
+- **Overheat protection** — throttle backed off at Warning temperature, forced down at Critical
 
 ### Autonomous AI Driver
-- **Drive to destination** — set a destination via Comms Radio, AI drives there automatically (no job required)
-- **Freight haul automation** — 4-phase automation: couple, load, drive, deliver
-- **Speed limit lookahead** — reads curve geometry (`BezierArcApproximation`) to anticipate speed limits ahead
+- **Drive to destination** — set a destination via Comms Radio; AI drives there automatically (no job required)
+- **Freight haul automation** — 4-phase automation: route to cars → couple → drive → deliver
 - **Turntable awareness** — AI stops and waits for a turntable to finish rotating before proceeding
+- **Competing mod safety** — disables DriverAssist and SteamCruiseControl on start so they don't fight the AI
 
 ### Comms Radio UI
 Full menu tree accessible from the in-game Comms Radio:
 - **New Route** — pick destination, plan route
 - **Active Route** — view info, flip direction, or clear
-- **Loco AI** — start/stop autonomous driving
+- **Loco AI** — start/stop autonomous driving or freight haul
 - **Settings** — adjust behaviour
 
 ---
@@ -38,7 +41,7 @@ Full menu tree accessible from the in-game Comms Radio:
 
 - [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) (current build)
 - [Unity Mod Manager (UMM)](https://www.nexusmods.com/site/mods/21)
-- [CommsRadioAPI](https://www.nexusmods.com/derailvalley/mods/?) — place `CommsRadioAPI.dll` in `Mods\CommsRadioAPI\`
+- [CommsRadioAPI](https://www.nexusmods.com/derailvalley/mods/740) — place `CommsRadioAPI.dll` in `Mods\CommsRadioAPI\`
 
 ---
 
@@ -56,18 +59,17 @@ Full menu tree accessible from the in-game Comms Radio:
 
 ## Building from Source
 
-**Requirements:** Visual Studio 2022 (or MSBuild), .NET Framework
+**Requirements:** Visual Studio 2022 (or MSBuild), .NET Framework 4.7.2
 
 1. Clone the repo.
-2. Set reference paths to your DV install's `DerailValley_Data\Managed\` folder and `Mods\CommsRadioAPI\CommsRadioAPI.dll`.
+2. Set `DVInstallPath` in `DVDRouteManager.csproj` to your Derail Valley install, or let it pick up the default `D:\SteamLibrary\...` path.
 3. Build:
    ```
-   MSBuild DVRouteManager\DVDRouteManager.csproj
+   MSBuild DVRouteManager\DVDRouteManager.csproj /p:Configuration=Debug
    ```
-   The DLL is output to `bin\Debug\DVRouteManager.dll`.
-4. Copy the DLL to `Mods\DVRouteManager\` in your DV install.
+   The DLL is output to `bin\Debug\DVRouteManager.dll` and copied to your Mods folder automatically.
 
-> **Note:** The post-build copy step may report `MSB3073` (SolutionName undefined) — this is harmless; the DLL is still built successfully.
+> **Note:** The post-build copy step may report `MSB3073` (SolutionName undefined) when building outside the full solution — this is harmless; the DLL is still built successfully.
 
 ---
 
@@ -86,13 +88,23 @@ Full menu tree accessible from the in-game Comms Radio:
 
 ## Known Issues / In Progress
 
-- **Audio cues** — clips load and `AudioSource` is found, but cues do not play in-game
-- **Steam AI** — compiled and logic complete; awaiting in-game verification
-- **Refuel routing** — planned: auto-route to nearest water tower or fuel station
+- **AI speed limit system** — under active development on the `Debug` branch; current master build uses the AI but speed limit enforcement is basic
+- **Audio cues** — clips load and `AudioSource` is found, but cues do not reliably play in-game
+- **Steam AI** — logic complete; awaiting full in-game verification
+
+---
+
+## Branches
+
+| Branch | Purpose |
+|--------|---------|
+| `master` | Stable releases — merge here only when features are working |
+| `Debug` | Active development — LocoAI speed limit overhaul in progress here |
 
 ---
 
 ## Credits
 
+- [WallyCZ/DVRouteManager](https://github.com/WallyCZ/DVRouteManager) — original mod
 - [RouteSetter](https://github.com/zelmer69/RouteSetter) by zelmer69 — reference for modern CommsRadioAPI usage
 - Derail Valley by [Altfuture](https://altfuture.gg/)

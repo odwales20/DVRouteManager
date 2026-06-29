@@ -439,9 +439,11 @@ namespace DVRouteManager
                         Terminal.Log($"Should approach reversed!!!");
                     }
 
-                    Terminal.Log($"junctionId {pathData.junctionId}");
                     if (Route.Reverses.TryGetValue(pathData.junctionId, out junction))
                     {
+#if DEBUG
+                        Terminal.Log($"Reversal junction matched: {pathData.junctionId}");
+#endif
                         TrackState = TrackingState.StopTrainAfterSwitch;
                         Module.StartCoroutine(SwitchJunctionAfterIsFree(junction));
                         Route.Reverses.Remove(pathData.junctionId);

@@ -32,6 +32,7 @@ namespace DVRouteManager.CommsRadio
                 menus.Add(new MenuItem("Active route", "Select", () => SetPage(typeof(RouteInfoPage))));
             }
 
+            menus.Add(new MenuItem("Route to refuel", "Select", () => SetPage(typeof(RefuelPage))));
             menus.Add(new MenuItem("Cruise Control (experimental)", "Select", () => SetPage(typeof(CruiseControlPage))));
             menus.Add(new MenuItem("Diesel loco AI (experimental)", "Select", () => SetPage(typeof(LocoAIPage))));
             menus.Add(new MenuItem("Settings", "Select", () => SetPage(typeof(SettingsPage))));

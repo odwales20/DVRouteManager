@@ -11,9 +11,9 @@ namespace DVRouteManager
     public class Settings : UnityModManager.ModSettings, IDrawable
     {
         [Header("Routing")]
-        [Draw(DrawType.ToggleGroup, Label = "Reversing strategy")] public ReversingStrategy ReversingStrategy = ReversingStrategy.ChooseBest;
+        public ReversingStrategy ReversingStrategy = ReversingStrategy.ChooseBest;
         [Header("Keys")]
-[Draw(DrawType.KeyBinding)] public KeyBinding TrainEndAlarm = new KeyBinding() { keyCode = KeyCode.N };
+        public KeyBinding TrainEndAlarm = new KeyBinding() { keyCode = KeyCode.N };
         public void OnChange()
         {
             //Main.ApplySettings(Preset);

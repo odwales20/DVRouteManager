@@ -24,6 +24,7 @@ namespace DVRouteManager
 #endif
     static class Module
     {
+        public const string BUILD = "b013";
         private const string AUDIO_DIRECTORY = "audio\\";
         public static UnityModManager.ModEntry mod;
         public static Settings settings;
@@ -111,9 +112,8 @@ namespace DVRouteManager
 
                 ActiveRoute = new ActiveRoute();
 
-                modEntry.Logger.Log("RouteManager initialized");
-
-                Terminal.Log($"Load, audio source {generalAudioSource}");
+                modEntry.Logger.Log($"RouteManager initialized build={Module.BUILD}");
+                Terminal.Log($"[DVRouteManager] build={Module.BUILD}");
             }
             catch (Exception exc)
             {
@@ -138,7 +138,12 @@ namespace DVRouteManager
 
         private static void OnGUI(ModEntry modEntry)
         {
-            settings.Draw(modEntry);
+            GUILayout.Label("Reversing strategy:");
+            foreach (ReversingStrategy strategy in System.Enum.GetValues(typeof(ReversingStrategy)))
+            {
+                if (GUILayout.Toggle(settings.ReversingStrategy == strategy, strategy.ToString()))
+                    settings.ReversingStrategy = strategy;
+            }
         }
 
         public static IEnumerator CheckUpdates()

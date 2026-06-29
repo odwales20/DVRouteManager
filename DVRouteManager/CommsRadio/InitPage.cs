@@ -132,7 +132,7 @@ namespace DVRouteManager.CommsRadio
         }
         public void SetMainDisplay()
         {
-            DisplayText("Route Manager v" + this.GetType().Assembly.GetName().Version.ToString(3), "Menu");
+            DisplayText("Route Manager v" + this.GetType().Assembly.GetName().Version.ToString(3) + " " + Module.BUILD, "Menu");
         }
 
         public override void OnAction()
