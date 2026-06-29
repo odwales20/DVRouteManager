@@ -19,7 +19,7 @@ namespace DVRouteManager.CommsRadio
         public RouteManagerInitialState()
             : base(new CommsRadioState(
                 "ROUTE MANAGER",
-                "v" + typeof(RouteManagerInitialState).Assembly.GetName().Version.ToString(3),
+                "v" + typeof(RouteManagerInitialState).Assembly.GetName().Version.ToString(3) + " " + Module.BUILD,
                 "MENU"))
         { }
 

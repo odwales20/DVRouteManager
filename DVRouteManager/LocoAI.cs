@@ -1,5 +1,6 @@
 ﻿using CommandTerminal;
 using DV.Logic.Job;
+using DV.Signs;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -22,9 +23,18 @@ namespace DVRouteManager
         private bool _freightHaulActive = false;
         public bool IsFreightHaulActive => _freightHaulActive;
 
-        // Per-instance cache: computed on first use via BezierArcApproximation (same
-        // algorithm the game uses to place speed-limit signs).
-        private readonly Dictionary<RailTrack, float> _speedLimitCache = new Dictionary<RailTrack, float>();
+        // Per-instance cache: per-300m-segment speed profiles, mirroring SignPlacer.GetTrackSigns.
+        // null entry = track is excluded (ShouldIncludeTrack / noSignsTrackNameMarks) → 120 km/h.
+        // Non-null = list of (distFromTrackStart, speedLimitKmh) for restricted segments only.
+        private readonly Dictionary<RailTrack, List<(float dist, float speed)>> _speedProfileCache
+            = new Dictionary<RailTrack, List<(float dist, float speed)>>();
+
+#if DEBUG
+        private RailTrack _lastLookaheadLimitTrack = null;
+        private float _lastLookaheadMinLimit = -1f;
+        private RailTrack _lastCurrentTrack = null;
+        private float _lastCurrentLimit = -1f;
+#endif
 
         /// <summary>
         /// Returns true when the next 1–2 tracks ahead in the route path include
@@ -57,36 +67,221 @@ namespace DVRouteManager
             return false;
         }
 
-        private float GetTrackSpeedLimit(RailTrack track)
+        // Returns the cached speed profile for a track (null = excluded, 120 km/h everywhere).
+        private List<(float dist, float speed)> GetTrackProfile(RailTrack track)
         {
-            if (track == null) return TARGET_SPEED_DEFAULT;
-            float cached;
-            if (_speedLimitCache.TryGetValue(track, out cached)) return cached;
-            float limit = ComputeTrackSpeedLimit(track);
-            _speedLimitCache[track] = limit;
-            return limit;
+            if (track == null) return null;
+            List<(float, float)> profile;
+            if (_speedProfileCache.TryGetValue(track, out profile)) return profile;
+            profile = ComputeTrackProfile(track);
+            _speedProfileCache[track] = profile;
+            return profile;
+        }
+
+        private const float YARD_SPEED_LIMIT = 50f;
+
+        // Minimum speed limit anywhere on the current track (conservative; used while on that track).
+        private float GetCurrentTrackMinSpeed(RailTrack track)
+        {
+            // Yard tracks ([Y] prefix) are excluded from sign placement but should still be slow
+            if (track?.name?.StartsWith("[Y]") == true) return YARD_SPEED_LIMIT;
+            var profile = GetTrackProfile(track);
+            if (profile == null || profile.Count == 0) return 120f;
+            float min = 120f;
+            foreach (var (_, spd) in profile) if (spd < min) min = spd;
+            return min;
         }
 
         /// <summary>
-        /// Computes the speed limit for a track using the exact same method the game uses
-        /// to place speed-limit signs: BezierArcApproximation finds the minimum curve radius,
-        /// then the same radius→speed table from SignPlacer.CurveSegmentInfo.GetMaxSpeedForRadius()
-        /// maps that to km/h. Works on any track regardless of whether signs are loaded.
+        /// Returns the most restrictive speed limit within braking distance ahead on the route.
+        /// Per-segment position-aware: only applies a segment's limit when the segment start
+        /// is within the lookahead window, so a tight section 2000m into a long track doesn't
+        /// slow the AI until it's actually approaching that section.
+        /// Mirrors SignPlacer.GetTrackSigns segment pipeline (BezierArcApproximation + MinimizeSpeedDifference).
         /// </summary>
-        private static float ComputeTrackSpeedLimit(RailTrack track)
+        private float GetLookaheadSpeedLimit(RailTrack currentTrack, float currentSpeedKmh)
         {
-            if (track?.curve == null) return 120f;
+            float currentLimit = GetCurrentTrackMinSpeed(currentTrack);
+#if DEBUG
+            if (currentLimit < 120f && (currentTrack != _lastCurrentTrack || currentLimit != _lastCurrentLimit))
+            {
+                Terminal.Log($"[SpeedLimit] CurrentTrack name={currentTrack?.name} → {currentLimit} km/h");
+                _lastCurrentTrack = currentTrack;
+                _lastCurrentLimit = currentLimit;
+            }
+            else if (currentLimit >= 120f)
+            {
+                _lastCurrentTrack = null;
+                _lastCurrentLimit = -1f;
+            }
+#endif
 
-            var arcs = new System.Collections.Generic.List<BezierArcApproximation.Arc>();
-            BezierArcApproximation.CalculateArcs(track.curve, 0.5f, arcs);
+            var path = RouteTracker?.Route?.Path;
+            if (path == null) return currentLimit;
 
-            if (arcs.Count == 0) return 120f;
+            int startIdx = path.IndexOf(currentTrack);
+            if (startIdx < 0) return currentLimit;
 
-            float minRadius = float.PositiveInfinity;
-            foreach (var arc in arcs)
-                if (arc.r < minRadius) minRadius = arc.r;
+            // Game places UpcomingSpeedDown signs ~speed*2 m before the limit change.
+            // Use speed*3 for a small safety margin.
+            float lookaheadM = Mathf.Max(currentSpeedKmh * 3f, 100f);
 
-            // Radius → speed table from SignPlacer (identical to in-game signs)
+            float minLimit = currentLimit;
+            float distAhead = 0f;
+#if DEBUG
+            RailTrack limitTrack = null;
+            float limitSegDistTotal = 0f;
+#endif
+
+            for (int i = startIdx + 1; i < path.Count && distAhead < lookaheadM; i++)
+            {
+                var t = path[i];
+                if (t == null) break;
+
+                // Yard tracks cap at YARD_SPEED_LIMIT regardless of geometry
+                if (t.name.StartsWith("[Y]"))
+                {
+                    if (YARD_SPEED_LIMIT < minLimit)
+                    {
+                        minLimit = YARD_SPEED_LIMIT;
+#if DEBUG
+                        limitTrack = t;
+                        limitSegDistTotal = distAhead;
+#endif
+                    }
+                }
+                else
+                {
+                    var profile = GetTrackProfile(t);
+                    if (profile != null)
+                    {
+                        foreach (var (segDist, segSpeed) in profile)
+                        {
+                            float distToSeg = distAhead + segDist;
+                            if (distToSeg >= lookaheadM) break;
+                            if (segSpeed < minLimit)
+                            {
+                                minLimit = segSpeed;
+#if DEBUG
+                                limitTrack = t;
+                                limitSegDistTotal = distToSeg;
+#endif
+                            }
+                        }
+                    }
+                }
+
+                distAhead += (float)t.LogicTrack().length;
+            }
+
+#if DEBUG
+            if (minLimit < currentLimit && limitTrack != null)
+            {
+                if (limitTrack != _lastLookaheadLimitTrack || minLimit != _lastLookaheadMinLimit)
+                {
+                    Terminal.Log($"[SpeedLimit] Lookahead capped {currentLimit}→{minLimit} km/h by {limitTrack.name} ({limitSegDistTotal:0}m ahead)");
+                    _lastLookaheadLimitTrack = limitTrack;
+                    _lastLookaheadMinLimit = minLimit;
+                }
+            }
+            else
+            {
+                _lastLookaheadLimitTrack = null;
+                _lastLookaheadMinLimit = -1f;
+            }
+#endif
+
+            return minLimit;
+        }
+
+        // Exact copy of SignPlacer.GetTrackSigns pipeline:
+        //   BezierArcApproximation(error=1f) → ChunkifyNumbers(300m) → MinimizeSpeedDifference(30f, 300f)
+        // Returns per-segment (distFromTrackStart, speedLimitKmh) list, or null if excluded.
+        // Only segments with limit < 120 km/h are included.
+        private static List<(float dist, float speed)> ComputeTrackProfile(RailTrack track)
+        {
+            if (track?.curve == null) return null;
+            // SignPlacer.ShouldIncludeTrack: skip tracks < 100m, [Y] prefix, [#] prefix
+            if (track.curve.length < 100f) return null;
+            string name = track.name;
+            if (name.StartsWith("[Y]") || name.StartsWith("[#]")) return null;
+
+            var arcs = new List<BezierArcApproximation.Arc>();
+            BezierArcApproximation.CalculateArcs(track.curve, 1f, arcs); // error=1f matches game
+
+            // ChunkifyNumbers requires all lengths > 0; filter zero-length arcs
+            var validArcs = arcs.Where(a => a.Length > 0f).ToList();
+            if (validArcs.Count == 0) return null;
+
+            // ChunkifyNumbers(minSum=300f): groups arcs into ≥300m segments
+            List<List<float>> chunks;
+            try { chunks = SignPlacerUtils.ChunkifyNumbers(validArcs.Select(a => a.Length).ToList(), 300f); }
+            catch (Exception e) { Module.mod.Logger.Log($"[SpeedLimit] ChunkifyNumbers {name}: {e.Message}"); return null; }
+
+            // Build per-segment (distFromStart, minRadius, segLen)
+            var segs = new List<(float dist, float speed, float len)>();
+            int arcIdx = 0;
+            float distFromStart = 0f;
+
+            foreach (var chunk in chunks)
+            {
+                float minR = float.PositiveInfinity;
+                float segLen = 0f;
+                float segStart = distFromStart;
+                foreach (float _ in chunk)
+                {
+                    float r = validArcs[arcIdx].r;
+                    if (r < minR) minR = r;
+                    segLen += validArcs[arcIdx].Length;
+                    arcIdx++;
+                }
+                distFromStart += segLen;
+                float speed = (minR == float.PositiveInfinity) ? 120f : RadiusToSpeed(minR);
+                segs.Add((segStart, speed, segLen));
+            }
+
+            // MinimizeSpeedDifference: raises short high-speed segments before a slow one
+            // (same params as game: threshold=30f, segLenThreshold=300f)
+            var speedLengths = segs.Select(s => (s.speed, s.len)).ToList();
+            foreach (var (op, idx, value) in SignPlacerUtils.MinimizeSpeedDifference(speedLengths, 30f, 300f))
+            {
+                if (op == SignPlacerUtils.Operation.Update && idx < segs.Count)
+                {
+                    var s = segs[idx];
+                    segs[idx] = (s.dist, value, s.len);
+                }
+                // Insert ops place warning signs ahead of drops — irrelevant for AI lookahead
+            }
+
+            // Junction end cap: game caps last segment to 60 km/h when track ends at a junction.
+            // outJunction = junction at the bezier t=1 end (forward direction).
+            // inJunction  = junction at the bezier t=0 end (reverse direction).
+            if (track.outJunction != null && segs.Count > 0)
+            {
+                var last = segs[segs.Count - 1];
+                if (last.speed > 60f) segs[segs.Count - 1] = (last.dist, 60f, last.len);
+            }
+            if (track.inJunction != null && segs.Count > 0)
+            {
+                var first = segs[0];
+                if (first.speed > 60f) segs[0] = (0f, 60f, first.len);
+            }
+
+            // Collect restricted segments
+            var profile = new List<(float dist, float speed)>();
+            foreach (var (dist, speed, _) in segs)
+                if (speed < 120f) profile.Add((dist, speed));
+
+#if DEBUG
+            if (profile.Count > 0)
+                Terminal.Log($"[SpeedLimit] Profile {name}: " + string.Join(", ", profile.Select(p => $"{p.dist:0}m→{p.speed}km/h")));
+#endif
+
+            return profile.Count > 0 ? profile : null;
+        }
+
+        private static float RadiusToSpeed(float minRadius)
+        {
             if (minRadius < 50f)   return 10f;
             if (minRadius < 70f)   return 20f;
             if (minRadius < 95f)   return 30f;
@@ -192,6 +387,29 @@ namespace DVRouteManager
             return true;
         }
 
+        private IEnumerator ReleaseAllBrakes()
+        {
+            //// ── Release handbrakes on wagons ─────────────────────────────
+            //foreach (TrainCar car in loco.trainset.cars)
+            //{
+            //    if (!car.IsLoco && car.brakeSystem.hasHandbrake)
+            //    {
+            //        car.brakeSystem.SetHandbrakePosition(0f);
+            //        Terminal.Log($"Released handbrake on {car.logicCar.ID}");
+            //    }
+            //}
+
+            // ── Release loco brakes (train + independent) ────────────────
+            // Use a loop to step them down smoothly
+            for (int i = 0; i < 10; i++)
+            {
+                remoteControl.UpdateIndependentBrake(-1.0f);
+                remoteControl.UpdateBrake(-1.0f);
+
+                yield return new WaitForSeconds(0.3f);
+            }
+        }
+
         private IEnumerator AICoroutine()
         {
             const float TIME_WAIT = 0.3f;
@@ -215,6 +433,8 @@ namespace DVRouteManager
             bool couplerApproach = false;
 
             RouteTracker.TrackingState lastState = RouteTracker.TrackState;
+
+            yield return ReleaseAllBrakes();
 
             while (running)
             {
@@ -257,12 +477,12 @@ namespace DVRouteManager
                     }
                     else
                     {
-                        TargetSpeed = GetTrackSpeedLimit(trainCar.Bogies[0].track);
+                        TargetSpeed = GetLookaheadSpeedLimit(trainCar.Bogies[0].track, speed);
                     }
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.OnStart)
                 {
-                    TargetSpeed = GetTrackSpeedLimit(trainCar.Bogies[0].track);
+                    TargetSpeed = GetLookaheadSpeedLimit(trainCar.Bogies[0].track, speed);
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.StopTrainAfterSwitch)
                 {
@@ -289,7 +509,7 @@ namespace DVRouteManager
                     {
                         yield return Module.StartCoroutine(Reverse());
                         shouldreverse = false;
-                        TargetSpeed = GetTrackSpeedLimit(trainCar.Bogies[0].track);
+                        TargetSpeed = GetLookaheadSpeedLimit(trainCar.Bogies[0].track, speed);
                     }
                 }
 
@@ -356,6 +576,8 @@ namespace DVRouteManager
             yield return null;
             remoteControl.UpdateReverser(direction ? ToggleDirection.DOWN : ToggleDirection.UP);
             yield return null;
+
+            yield return ReleaseAllBrakes();
         }
 
         IEnumerator BrakePulse(int level, float waitTime)
@@ -412,35 +634,46 @@ namespace DVRouteManager
             Track carTrack = freightTrainset.firstCar.Bogies[0].track.LogicTrack();
             Track locoTrack = loco.trainset.firstCar.Bogies[0].track.LogicTrack();
 
-            var toCarsTask = Route.FindRoute(locoTrack, carTrack, ReversingStrategy.ChooseBest, loco.trainset);
-            while (!toCarsTask.IsCompleted) yield return null;
+            bool alreadyCoupled = loco.trainset == freightTrainset;
 
-            if (!_freightHaulActive) yield break;
-
-            if (toCarsTask.IsFaulted || toCarsTask.Result == null)
+            if (loco.trainset == freightTrainset)
             {
-                Terminal.Log("Freight haul: cannot find route to cars – " + (toCarsTask.Exception?.InnerException?.Message ?? "null"));
-                _freightHaulActive = false;
-                yield break;
+                Terminal.Log("Freight haul: already coupled to target trainset, skipping routing to cars");
             }
+            else
+            {
 
-            var chain1 = RouteTaskChain.FromDestination(carTrack, loco.trainset);
-            var tracker1 = new RouteTracker(chain1, true);
-            tracker1.SetRoute(toCarsTask.Result, loco.trainset);
-            Module.ActiveRoute.Route = toCarsTask.Result;
-            Module.ActiveRoute.RouteTracker = tracker1;
+                var toCarsTask = Route.FindRoute(locoTrack, carTrack, ReversingStrategy.ChooseBest, loco.trainset);
+                while (!toCarsTask.IsCompleted) yield return null;
 
-            StartAI(tracker1);
-            while (running && _freightHaulActive) yield return null;
+                if (!_freightHaulActive) yield break;
 
-            if (!_freightHaulActive) { Stop(); yield break; }
+                if (toCarsTask.IsFaulted || toCarsTask.Result == null)
+                {
+                    Terminal.Log("Freight haul: cannot find route to cars – " + (toCarsTask.Exception?.InnerException?.Message ?? "null"));
+                    _freightHaulActive = false;
+                    yield break;
+                }
 
-            // ── Phase 2: couple and release handbrakes ───────────────────────
-            Terminal.Log("Freight haul: phase 2 – coupling");
-            yield return TryCoupleAndReleaseHandbrakes(loco);
-            yield return new WaitForSeconds(1.5f);
+                var chain1 = RouteTaskChain.FromDestination(carTrack, loco.trainset);
+                var tracker1 = new RouteTracker(chain1, true);
+                tracker1.SetRoute(toCarsTask.Result, loco.trainset);
+                Module.ActiveRoute.Route = toCarsTask.Result;
+                Module.ActiveRoute.RouteTracker = tracker1;
 
-            if (!_freightHaulActive) yield break;
+                StartAI(tracker1);
+                while (running && _freightHaulActive) yield return null;
+
+                if (!_freightHaulActive) { Stop(); yield break; }
+
+                // ── Phase 2: couple and release handbrakes ───────────────────────
+                Terminal.Log("Freight haul: phase 2 – coupling");
+                yield return TryCoupleAndReleaseHandbrakes(loco);
+                yield return new WaitForSeconds(1.5f);
+
+                if (!_freightHaulActive) yield break;
+
+            }
 
             // ── Phase 3: drive to destination ────────────────────────────────
             Terminal.Log($"Freight haul: phase 3 – routing to {task.DestinationTrack.ID.FullID}");

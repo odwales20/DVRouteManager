@@ -332,11 +332,36 @@ namespace DVRouteManager
 
         public async Task<Route> FindOppositeRoute()
         {
-            List<TrackTransition> trackTransitions = new List<TrackTransition>();
+            // Exit FirstTrack from the opposite end to the current route.
+            // If the route leaves via the out-side, ban all out-branches so A* must use the in-side,
+            // and vice versa.
+            var bannedTransitions = new List<TrackTransition>();
 
-            trackTransitions.Add(new TrackTransition() { track = FirstTrack, nextTrack = SecondTrack });
+            if (FirstTrack == null || SecondTrack == null)
+                return null;
 
-            return await Route.FindRoute(FirstTrack.LogicTrack(), LastTrack.LogicTrack(), Module.settings.ReversingStrategy, Trainset, trackTransitions);
+            if (FirstTrack.IsTrackOutBranch(SecondTrack))
+            {
+                // Current route exits out-side — ban all out-branches
+                foreach (var b in FirstTrack.GetAllOutBranches().Where(b => b?.track != null))
+                    bannedTransitions.Add(new TrackTransition { track = FirstTrack, nextTrack = b.track });
+            }
+            else if (FirstTrack.IsTrackInBranch(SecondTrack))
+            {
+                // Current route exits in-side — ban all in-branches
+                foreach (var b in FirstTrack.GetAllInBranches().Where(b => b?.track != null))
+                    bannedTransitions.Add(new TrackTransition { track = FirstTrack, nextTrack = b.track });
+            }
+            else
+            {
+                // Fallback: just ban the original second track
+                bannedTransitions.Add(new TrackTransition { track = FirstTrack, nextTrack = SecondTrack });
+            }
+
+            Terminal.Log($"Flip: banned {bannedTransitions.Count} transition(s) from {FirstTrack.LogicTrack().ID.FullID}");
+
+            return await Route.FindRoute(FirstTrack.LogicTrack(), Destination,
+                Module.settings.ReversingStrategy, Trainset, bannedTransitions);
         }
 
         public async static Task<Route> FindRoute(Track begin, Track end, ReversingStrategy reversingStrategy, Trainset trainset, List<TrackTransition> trackTransitions = null)
