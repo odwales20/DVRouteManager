@@ -1,8 +1,10 @@
 # DVRouteManager
 
-A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod that adds route management, automatic junction switching, cruise control, and autonomous AI driving via the Comms Radio.
+A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod that adds route management, automatic junction switching, and cruise control via the Comms Radio.
 
 > **Forked from [WallyCZ/DVRouteManager](https://github.com/WallyCZ/DVRouteManager)** — original mod by Wally.
+
+> **Note:** The autonomous AI driver is under active development on the [`Debug` branch](https://github.com/odwales20/DVRouteManager/tree/Debug) and is not part of this stable release.
 
 ---
 
@@ -12,7 +14,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 - **A\* pathfinding** over the full RailTrack graph — finds the shortest driveable path between any two tracks
 - **Automatic junction switching** — all switches along the route are set as you pass each track segment
 - **Turntable routing** — routes through turntables, auto-rotates them to the correct heading before you arrive
-- **Yard track avoidance** — penalises occupied or reserved yard sidings so the AI prefers main-line paths
+- **Yard track avoidance** — penalises occupied or reserved yard sidings so the pathfinder prefers main-line paths
 - **Flip direction** — reverse the active route in-place without re-planning from scratch
 - **Map markers** — route is drawn on the in-game map
 
@@ -22,17 +24,10 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 - **Steam loco support (S060 / S282)** — pressure-aware cutoff, pulse braking, smooth regulator/cutoff lerp
 - **Overheat protection** — throttle backed off at Warning temperature, forced down at Critical
 
-### Autonomous AI Driver
-- **Drive to destination** — set a destination via Comms Radio; AI drives there automatically (no job required)
-- **Freight haul automation** — 4-phase automation: route to cars → couple → drive → deliver
-- **Turntable awareness** — AI stops and waits for a turntable to finish rotating before proceeding
-- **Competing mod safety** — disables DriverAssist and SteamCruiseControl on start so they don't fight the AI
-
 ### Comms Radio UI
 Full menu tree accessible from the in-game Comms Radio:
 - **New Route** — pick destination, plan route
 - **Active Route** — view info, flip direction, or clear
-- **Loco AI** — start/stop autonomous driving or freight haul
 - **Settings** — adjust behaviour
 
 ---
@@ -62,7 +57,7 @@ Full menu tree accessible from the in-game Comms Radio:
 **Requirements:** Visual Studio 2022 (or MSBuild), .NET Framework 4.7.2
 
 1. Clone the repo.
-2. Set `DVInstallPath` in `DVDRouteManager.csproj` to your Derail Valley install, or let it pick up the default `D:\SteamLibrary\...` path.
+2. Set `DVInstallPath` in `DVDRouteManager.csproj` to your Derail Valley install.
 3. Build:
    ```
    MSBuild DVRouteManager\DVDRouteManager.csproj /p:Configuration=Debug
@@ -80,17 +75,14 @@ Full menu tree accessible from the in-game Comms Radio:
 | `PathFinder.cs` | A\* search over `RailTrack` graph with turntable and yard-penalty support |
 | `Route.cs` | Wraps the path list; manages junction/turntable switching and direction reversal |
 | `RouteTracker.cs` | Tracks loco position along the active route; triggers switch updates as segments are passed |
-| `LocoAI.cs` | Coroutine-based autonomous driver; handles speed limits, turntable waits, freight phases |
 | `LocoCruiseControl.cs` | PID controller with DM3 gear logic and steam loco support |
 | `RouteManagerStates.cs` | All Comms Radio UI states and menu tree |
 
 ---
 
-## Known Issues / In Progress
+## Known Issues
 
-- **AI speed limit system** — under active development on the `Debug` branch; current master build uses the AI but speed limit enforcement is basic
 - **Audio cues** — clips load and `AudioSource` is found, but cues do not reliably play in-game
-- **Steam AI** — logic complete; awaiting full in-game verification
 
 ---
 
@@ -98,8 +90,8 @@ Full menu tree accessible from the in-game Comms Radio:
 
 | Branch | Purpose |
 |--------|---------|
-| `master` | Stable releases — merge here only when features are working |
-| `Debug` | Active development — LocoAI speed limit overhaul in progress here |
+| `master` | Stable release — route planning, junction switching, cruise control |
+| `Debug` | Active development — autonomous AI driver (speed limit system in progress) |
 
 ---
 
