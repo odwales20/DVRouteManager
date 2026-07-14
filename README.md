@@ -40,6 +40,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Speed limiting on `Road`-prefixed tracks is still being tuned — the game removes signs from these tracks via `noSignsTrackNameMarks` (not readable at runtime), so our geometry-based limits may be slightly conservative on some road sections
 - The AI now follows sign-derived limits with a fixed 5 km/h margin and DriverAssist-style controller protections, but braking and overspeed behaviour still needs testing across heavier consists, gradients, and poor adhesion
 - Freight haul AI is not production-ready yet; speed-limit tuning is still in progress and heavy trains may still derail
+- Yard reverse safety was added in b021/b022 but has not been live-tested yet
 - Comms Radio reload is supported for testing, but a full game restart is still the safest way to confirm a clean mod load after larger code changes
 
 ### Next Test TODO
@@ -47,7 +48,8 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Reload into **b022** and confirm the Comms Radio build marker updates after UMM reload
 - Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin and DriverAssist-style protections enabled; watch for flange squeal, overspeed, high acceleration, wheel slip, and braking before tighter curves
 - Test DM3 specifically: confirm gear shifting still works, loaded consists use controlled train braking, and hill climbs do not stall from over-aggressive throttle limiting
-- Test yard reverse safety: put cars close behind the loco/trainset, trigger an AI reversal, and confirm it keeps the other direction instead of reversing through them
+- Test yard reverse safety: put cars close behind the loco/trainset, trigger an AI reversal, and confirm it keeps the other direction at normal AI target speed instead of reversing through them
+- Repeat the yard reverse test with no cars behind it and confirm normal reversing still works
 - After light-engine testing looks stable, test a freight consist on the same route and check whether the margin is enough for heavier braking lag
 
 ### Shutdown Handoff
@@ -56,6 +58,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Current debug build marker: `b022`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
+- b022 yard reverse safety has not been tested yet
 - Next test should start by reloading into `b022` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, and yard reverse safety are active
 - Recent important commits:
   - b022 - continue normally when reversal is blocked
