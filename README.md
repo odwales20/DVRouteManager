@@ -11,24 +11,32 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 ## What's Different on This Branch
 
-The `Debug` branch contains the in-progress **AI speed limit overhaul**. All other changes (UI fixes, routing, other locos) are made on `master` and then merged here.
+The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
+
+Current debug build marker: **b018**.
 
 ### AI Speed Limit System (WIP)
 
-The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline exactly rather than trying to approximate it:
+The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closely rather than trying to use a hand-made approximation:
 
 - `BezierArcApproximation` (error=1f) computes curve arcs for each track
 - `SignPlacerUtils.ChunkifyNumbers(300f)` groups arcs into 300 m segments
 - `SignPlacerUtils.MinimizeSpeedDifference(30f, 300f)` raises the speed of short segments that drop too steeply (same parameters the game uses)
-- Junction end cap: last segment capped to 60 km/h when a track leads into a junction
+- Direction-aware speed profiles for both forward and reverse travel
+- Unrestricted `120 km/h` reset segments are kept in the profile, so the AI can speed back up after leaving a restricted section
 - **Per-segment, position-aware lookahead**: a tight section 1500 m into a long track does not slow the AI until it is actually within braking distance of that section — fixes the old "sitting at 60 for an entire track" problem
+- **Current-position speed lookup**: the active limit is based on the current bogie position on the track, rather than the lowest limit anywhere on the track
+- **AI target margin**: the AI targets 5 km/h below the sign-derived limit (about 3 mph) to give the cruise controller braking headroom
+- Junction end cap: last segment capped to 60 km/h when a track leads into a junction
 - Yard speed cap: `[Y]` tracks are limited to 50 km/h (these are excluded from sign placement but still need a sensible limit)
 - DE4 startup fix: throttle capped at 25 % below 5 km/h to prevent traction motor overload from standstill
+- Debug reload cleanup: UMM reload removes stale CommsRadioAPI modes so the Comms Radio build marker updates after reload
 
 ### Known Remaining Issues
 
 - Speed limiting on `Road`-prefixed tracks is still being tuned — the game removes signs from these tracks via `noSignsTrackNameMarks` (not readable at runtime), so our geometry-based limits may be slightly conservative on some road sections
-- Current-track speed limit uses the whole-track minimum rather than the AI's actual position within the track; the AI may slow slightly earlier than necessary on long tracks with a tight section near one end
+- The AI now follows sign-derived limits with a fixed 5 km/h margin, but braking feel still needs testing across heavier consists, gradients, and poor adhesion
+- Comms Radio reload is supported for testing, but a full game restart is still the safest way to confirm a clean mod load after larger code changes
 
 ---
 
@@ -51,12 +59,13 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline exactl
 ### Autonomous AI Driver
 - **Drive to destination** — set a destination via Comms Radio; AI drives there automatically
 - **Freight haul automation** — 4-phase: route to cars → couple → drive → deliver
-- **Speed limit lookahead** — geometry-based per-segment limits (see above)
+- **Speed limit lookahead** — geometry-based, position-aware per-segment limits with a 5 km/h target margin
 - **Turntable awareness** — stops and waits for turntable to finish rotating
 - **Competing mod safety** — disables DriverAssist and SteamCruiseControl on start
 
 ### Comms Radio UI
 - New Route / Active Route / Loco AI / Settings
+- Debug build marker shown on the Route Manager screen so live test builds can be identified in-game
 
 ---
 
@@ -73,7 +82,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline exactl
 | Cruise control | ✅ Working |
 | Freight haul AI | ✅ Working |
 | Map markers | ✅ Working |
-| **AI speed limits** | 🚧 In progress — tuning ongoing |
+| **AI speed limits** | 🚧 Working in light-engine testing — tuning ongoing |
 | Audio cues | ❌ Not working |
 
 ---
