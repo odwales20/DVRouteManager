@@ -39,6 +39,12 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Freight haul AI is not production-ready yet; speed-limit tuning is still in progress and heavy trains may still derail
 - Comms Radio reload is supported for testing, but a full game restart is still the safest way to confirm a clean mod load after larger code changes
 
+### Next Test TODO
+
+- Reload into **b018** and confirm the Comms Radio build marker updates after UMM reload
+- Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin enabled; watch for flange squeal, overspeed, and braking before tighter curves
+- After light-engine testing looks stable, test a freight consist on the same route and check whether the margin is enough for heavier braking lag
+
 ---
 
 ## Features
