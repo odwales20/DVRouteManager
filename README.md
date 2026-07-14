@@ -35,7 +35,8 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Known Remaining Issues
 
 - Speed limiting on `Road`-prefixed tracks is still being tuned — the game removes signs from these tracks via `noSignsTrackNameMarks` (not readable at runtime), so our geometry-based limits may be slightly conservative on some road sections
-- The AI now follows sign-derived limits with a fixed 5 km/h margin, but braking feel still needs testing across heavier consists, gradients, and poor adhesion
+- The AI now follows sign-derived limits with a fixed 5 km/h margin, but braking and overspeed behaviour still needs testing across heavier consists, gradients, and poor adhesion
+- Freight haul AI is not production-ready yet; speed-limit tuning is still in progress and heavy trains may still derail
 - Comms Radio reload is supported for testing, but a full game restart is still the safest way to confirm a clean mod load after larger code changes
 
 ---
@@ -80,9 +81,9 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 | Route tracking | ✅ Working |
 | Turntable routing | ✅ Working |
 | Cruise control | ✅ Working |
-| Freight haul AI | ✅ Working |
+| Freight haul AI | 🚧 Experimental — speed-limit tuning may still derail heavy trains |
 | Map markers | ✅ Working |
-| **AI speed limits** | 🚧 Working in light-engine testing — tuning ongoing |
+| **AI speed limits** | 🚧 Light-engine testing only — freight/heavy consist tuning ongoing |
 | Audio cues | ❌ Not working |
 
 ---
