@@ -45,6 +45,9 @@ namespace UnityAsync
 		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
 		public static void Initialize()
 		{
+			if (Instance != null)
+				Shutdown();
+
 			unityThreadId = Thread.CurrentThread.ManagedThreadId;
 			UnitySyncContext = SynchronizationContext.Current;
 
@@ -57,6 +60,28 @@ namespace UnityAsync
 			Instance = new GameObject("Async Manager").AddComponent<AsyncManager>();
 			if(!Application.isEditor) // DontDestroyOnLoad can not be called in editor mode
 				DontDestroyOnLoad(Instance);
+		}
+
+		public static void Shutdown()
+		{
+			if (Instance != null)
+			{
+				Instance.StopAllCoroutines();
+				DestroyImmediate(Instance.gameObject);
+				Instance = null;
+			}
+
+			updates = null;
+			lateUpdates = null;
+			fixedUpdates = null;
+			UnitySyncContext = null;
+			BackgroundSyncContext = null;
+			CurrentFrameCount = 0;
+			CurrentTime = 0f;
+			CurrentUnscaledTime = 0f;
+			updateCount = 0;
+			lateCount = 0;
+			fixedCount = 0;
 		}
 
 		/// <summary>

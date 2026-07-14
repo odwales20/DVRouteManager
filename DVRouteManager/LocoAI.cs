@@ -24,8 +24,8 @@ namespace DVRouteManager
         public bool IsFreightHaulActive => _freightHaulActive;
 
         // Per-instance cache: per-300m-segment speed profiles, mirroring SignPlacer.GetTrackSigns.
-        // null entry = track is excluded (ShouldIncludeTrack / noSignsTrackNameMarks) → 120 km/h.
-        // Non-null = list of (distFromTrackStart, speedLimitKmh) for restricted segments only.
+        // null entry = track is excluded (ShouldIncludeTrack / noSignsTrackNameMarks) -> 120 km/h.
+        // Non-null = ordered list of (distFromTrackStart, speedLimitKmh), including 120 km/h reset segments.
         private readonly Dictionary<string, List<(float dist, float speed)>> _speedProfileCache
             = new Dictionary<string, List<(float dist, float speed)>>();
 
@@ -91,16 +91,52 @@ namespace DVRouteManager
 
         private const float YARD_SPEED_LIMIT = 50f;
 
-        // Minimum speed limit anywhere on the current track (conservative; used while on that track).
-        private float GetCurrentTrackMinSpeed(RailTrack track, bool forward)
+        private struct CurrentTrackPosition
+        {
+            public RailTrack track;
+            public float distance;
+        }
+
+        private CurrentTrackPosition? GetCurrentTrackPosition()
+        {
+            if (trainCar?.Bogies == null || !trainCar.Bogies.Any())
+                return null;
+
+            var bogie = trainCar.Bogies
+                .FirstOrDefault(b => b != null && !b.HasDerailed && b.track != null);
+            if (bogie == null)
+                return null;
+
+            RailTrack track = bogie.track;
+            float trackLength = (float)track.LogicTrack().length;
+            float span = Mathf.Clamp((float)bogie.traveller.Span, 0f, trackLength);
+
+            var path = RouteTracker?.Route?.Path;
+            int index = path?.IndexOf(track) ?? -1;
+            bool forward = GetRouteDirection(track, index);
+
+            return new CurrentTrackPosition
+            {
+                track = track,
+                distance = forward ? span : trackLength - span
+            };
+        }
+
+        private float GetSpeedAtTrackDistance(RailTrack track, bool forward, float distance)
         {
             // Yard tracks ([Y] prefix) are excluded from sign placement but should still be slow
             if (IsYardTrack(track)) return YARD_SPEED_LIMIT;
             var profile = GetTrackProfile(track, forward);
             if (profile == null || profile.Count == 0) return 120f;
-            float min = 120f;
-            foreach (var (_, spd) in profile) if (spd < min) min = spd;
-            return min;
+
+            float speed = profile[0].speed;
+            foreach (var (dist, spd) in profile)
+            {
+                if (dist > distance + 0.1f)
+                    break;
+                speed = spd;
+            }
+            return speed;
         }
 
         private bool GetRouteDirection(RailTrack track, int index)
@@ -133,20 +169,20 @@ namespace DVRouteManager
         /// slow the AI until it's actually approaching that section.
         /// Mirrors SignPlacer.GetTrackSigns segment pipeline (BezierArcApproximation + MinimizeSpeedDifference).
         /// </summary>
-        private float GetLookaheadSpeedLimit(RailTrack currentTrack, float currentSpeedKmh)
+        private float GetLookaheadSpeedLimit(RailTrack currentTrack, float currentSpeedKmh, float currentDistance)
         {
             var path = RouteTracker?.Route?.Path;
-            if (path == null) return GetCurrentTrackMinSpeed(currentTrack, true);
+            if (path == null) return GetSpeedAtTrackDistance(currentTrack, true, currentDistance);
 
             int startIdx = path.IndexOf(currentTrack);
-            if (startIdx < 0) return GetCurrentTrackMinSpeed(currentTrack, true);
+            if (startIdx < 0) return GetSpeedAtTrackDistance(currentTrack, true, currentDistance);
 
             bool currentForward = GetRouteDirection(currentTrack, startIdx);
-            float currentLimit = GetCurrentTrackMinSpeed(currentTrack, currentForward);
+            float currentLimit = GetSpeedAtTrackDistance(currentTrack, currentForward, currentDistance);
 #if DEBUG
             if (currentLimit < 120f && (currentTrack != _lastCurrentTrack || currentLimit != _lastCurrentLimit))
             {
-                Terminal.Log($"[SpeedLimit] CurrentTrack name={currentTrack?.name} dir={(currentForward ? "F" : "R")} → {currentLimit} km/h");
+                Terminal.Log($"[SpeedLimit] CurrentTrack name={currentTrack?.name} dir={(currentForward ? "F" : "R")} pos={currentDistance:0}m -> {currentLimit} km/h");
                 _lastCurrentTrack = currentTrack;
                 _lastCurrentLimit = currentLimit;
             }
@@ -162,11 +198,34 @@ namespace DVRouteManager
             float lookaheadM = Mathf.Max(currentSpeedKmh * 3f, 100f);
 
             float minLimit = currentLimit;
-            float distAhead = 0f;
+            float currentTrackLength = (float)currentTrack.LogicTrack().length;
+            float distAhead = Mathf.Max(0f, currentTrackLength - currentDistance);
 #if DEBUG
             RailTrack limitTrack = null;
             float limitSegDistTotal = 0f;
 #endif
+
+            if (!IsYardTrack(currentTrack))
+            {
+                var currentProfile = GetTrackProfile(currentTrack, currentForward);
+                if (currentProfile != null)
+                {
+                    foreach (var (segDist, segSpeed) in currentProfile)
+                    {
+                        float distToSeg = segDist - currentDistance;
+                        if (distToSeg <= 0f) continue;
+                        if (distToSeg >= lookaheadM) break;
+                        if (segSpeed < minLimit)
+                        {
+                            minLimit = segSpeed;
+#if DEBUG
+                            limitTrack = currentTrack;
+                            limitSegDistTotal = distToSeg;
+#endif
+                        }
+                    }
+                }
+            }
 
             for (int i = startIdx + 1; i < path.Count && distAhead < lookaheadM; i++)
             {
@@ -233,7 +292,7 @@ namespace DVRouteManager
         // Exact copy of SignPlacer.GetTrackSigns pipeline:
         //   BezierArcApproximation(error=1f) → ChunkifyNumbers(300m) → MinimizeSpeedDifference(30f, 300f)
         // Returns per-segment (distFromTrackStart, speedLimitKmh) list, or null if excluded.
-        // Only segments with limit < 120 km/h are included.
+        // Includes unrestricted 120 km/h segments so the AI can speed up after a restriction.
         private static List<(float dist, float speed)> ComputeTrackProfile(RailTrack track, bool forward)
         {
             if (track?.curve == null) return null;
@@ -303,26 +362,31 @@ namespace DVRouteManager
                 if (first.speed > 60f) segs[0] = (first.dist, 60f, first.len);
             }
 
-            // Collect restricted segments
-            var profile = new List<(float dist, float speed)>();
-            foreach (var (dist, speed, len) in segs)
-            {
-                if (speed < 120f) profile.Add((dist, speed));
-            }
+            var profile = segs
+                .Select(s => (s.dist, s.speed))
+                .OrderBy(s => s.Item1)
+                .ToList();
 
             if (!forward && profile.Count > 0)
             {
                 float trackLength = (float)track.LogicTrack().length;
                 profile = segs
-                    .Where(s => s.speed < 120f)
                     .Select(s => (Mathf.Max(0f, trackLength - (s.dist + s.len)), s.speed))
                     .OrderBy(s => s.Item1)
                     .ToList();
             }
 
+            var compactProfile = new List<(float dist, float speed)>();
+            foreach (var point in profile)
+            {
+                if (compactProfile.Count == 0 || Mathf.Abs(compactProfile[compactProfile.Count - 1].speed - point.speed) > 0.1f)
+                    compactProfile.Add(point);
+            }
+            profile = compactProfile;
+
 #if DEBUG
             if (profile.Count > 0)
-                Terminal.Log($"[SpeedLimit] Profile {name} dir={(forward ? "F" : "R")}: " + string.Join(", ", profile.Select(p => $"{p.dist:0}m→{p.speed}km/h")));
+                Terminal.Log($"[SpeedLimit] Profile {name} dir={(forward ? "F" : "R")}: " + string.Join(", ", profile.Select(p => $"{p.dist:0}m->{p.speed}km/h")));
 #endif
 
             return profile.Count > 0 ? profile : null;
@@ -438,17 +502,6 @@ namespace DVRouteManager
             return true;
         }
 
-        private RailTrack GetCurrentBogieTrack()
-        {
-            if (trainCar?.Bogies == null || !trainCar.Bogies.Any())
-                return null;
-
-            return trainCar.Bogies
-                .Where(b => b != null && !b.HasDerailed && b.track != null)
-                .Select(b => b.track)
-                .FirstOrDefault();
-        }
-
         private IEnumerator ReleaseAllBrakes()
         {
             //// ── Release handbrakes on wagons ─────────────────────────────
@@ -539,14 +592,14 @@ namespace DVRouteManager
                     }
                     else
                     {
-                        RailTrack currentTrack = GetCurrentBogieTrack();
-                        TargetSpeed = currentTrack != null ? GetLookaheadSpeedLimit(currentTrack, speed) : 0f;
+                        var currentPosition = GetCurrentTrackPosition();
+                        TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : 0f;
                     }
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.OnStart)
                 {
-                    RailTrack currentTrack = GetCurrentBogieTrack();
-                    TargetSpeed = currentTrack != null ? GetLookaheadSpeedLimit(currentTrack, speed) : 0f;
+                    var currentPosition = GetCurrentTrackPosition();
+                    TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : 0f;
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.StopTrainAfterSwitch)
                 {
@@ -573,8 +626,8 @@ namespace DVRouteManager
                     {
                         yield return Module.StartCoroutine(Reverse());
                         shouldreverse = false;
-                        RailTrack currentTrack = GetCurrentBogieTrack();
-                        TargetSpeed = currentTrack != null ? GetLookaheadSpeedLimit(currentTrack, speed) : 0f;
+                        var currentPosition = GetCurrentTrackPosition();
+                        TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : 0f;
                     }
                 }
 

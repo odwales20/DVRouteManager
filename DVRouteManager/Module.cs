@@ -24,7 +24,7 @@ namespace DVRouteManager
 #endif
     static class Module
     {
-        public const string BUILD = "b014";
+        public const string BUILD = "b016";
         private const string AUDIO_DIRECTORY = "audio\\";
         public static UnityModManager.ModEntry mod;
         public static Settings settings;
@@ -38,6 +38,7 @@ namespace DVRouteManager
         public static AudioClip onClip { get; private set; }
         public static AudioClip setClip { get; private set; }
         public static AudioSource generalAudioSource { get; private set; }
+        private static Harmony harmony;
 
         public static string ModulePath
         {
@@ -105,7 +106,7 @@ namespace DVRouteManager
 #if DEBUG
                 modEntry.OnUnload = Unload;
 #endif
-                var harmony = new Harmony(modEntry.Info.Id);
+                harmony = new Harmony(modEntry.Info.Id);
                 harmony.PatchAll(Assembly.GetExecutingAssembly());
 
                 AsyncManager.Initialize();
@@ -126,8 +127,47 @@ namespace DVRouteManager
 #if DEBUG
         static bool Unload(UnityModManager.ModEntry modEntry)
         {
-            //Before unloading OnToggle with active = false is called
-            return true;
+            try
+            {
+                Deactivate();
+
+                harmony?.UnpatchAll(modEntry.Info.Id);
+                harmony = null;
+
+                if (generalAudioSource != null)
+                {
+                    UnityEngine.Object.Destroy(generalAudioSource);
+                    generalAudioSource = null;
+                }
+
+                stopTrainClip = null;
+                trainEnd = null;
+                wrongWayClip = null;
+                offClip = null;
+                onClip = null;
+                setClip = null;
+                VersionForUpdate = null;
+                foreach (var locoAI in locosAI.Values)
+                    locoAI?.StopAll();
+                locosAI.Clear();
+                ActiveRoute = null;
+                commsRadioMode = null;
+
+                mod.OnToggle = null;
+                mod.OnUpdate = null;
+                mod.OnGUI = null;
+                mod.OnSaveGUI = null;
+                mod.OnUnload = null;
+
+                AsyncManager.Shutdown();
+                modEntry.Logger.Log("RouteManager unloaded for reload");
+                return true;
+            }
+            catch (Exception exc)
+            {
+                modEntry.Logger.LogException(exc);
+                return false;
+            }
         }
 #endif
 
@@ -322,10 +362,10 @@ namespace DVRouteManager
             Terminal.Log("RouteManager deactivating");
 
             RemoveCommsRouteManager();
-            Terminal.Shell.Commands.Remove("route");
+            Terminal.Shell?.Commands.Remove("route");
             StopInitCoroutines();
             //Terminal.Autocomplete.UnRegister("route"); //currently not able unregister
-            Module.ActiveRoute.ClearRoute();
+            Module.ActiveRoute?.ClearRoute();
         }
 
         private static void OnUpdate(ModEntry arg1, float arg2)
