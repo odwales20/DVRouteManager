@@ -45,6 +45,18 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin enabled; watch for flange squeal, overspeed, and braking before tighter curves
 - After light-engine testing looks stable, test a freight consist on the same route and check whether the margin is enough for heavier braking lag
 
+### Shutdown Handoff
+
+- Current branch: `Debug`, pushed to `origin/Debug`
+- Current debug build marker: `b018`
+- Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
+- Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
+- Next test should start by reloading into `b018` so the 5 km/h margin and comm radio reload cleanup are active
+- Recent important commits:
+  - `abef2ed` - add AI speed limit margin
+  - `7e53bc9` - remove stale comm radio modes on reload
+  - `9100816` - fix debug reload and speed limit recovery
+
 ---
 
 ## Features
