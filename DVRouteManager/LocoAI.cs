@@ -18,11 +18,13 @@ namespace DVRouteManager
         private const float TARGET_SPEED_DEFAULT = 20.0f;
         private const float COUPLER_APPROACH_SPEED = 5.0f;
         private const float SPEED_LIMIT_TARGET_MARGIN = 5.0f; // ~3 mph headroom under sign-derived limits
+        private const float REVERSE_COUPLER_CLEARANCE = 12.0f;
         private RouteTracker RouteTracker;
 
         public bool IsRunning => running;
         private bool _freightHaulActive = false;
         public bool IsFreightHaulActive => _freightHaulActive;
+        private bool _reverseBlockedLogged = false;
 
         // Per-instance cache: per-300m-segment speed profiles, mirroring SignPlacer.GetTrackSigns.
         // null entry = track is excluded (ShouldIncludeTrack / noSignsTrackNameMarks) -> 120 km/h.
@@ -633,10 +635,20 @@ namespace DVRouteManager
 
                     if (speed < 3.0f && shouldreverse)
                     {
-                        yield return Module.StartCoroutine(Reverse());
-                        shouldreverse = false;
-                        var currentPosition = GetCurrentTrackPosition();
-                        TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : 0f;
+                        if (IsReversePathBlocked())
+                        {
+                            shouldreverse = false;
+                            yield return ReleaseAllBrakes();
+                            TargetSpeed = COUPLER_APPROACH_SPEED;
+                        }
+                        else
+                        {
+                            yield return Module.StartCoroutine(Reverse());
+                            shouldreverse = false;
+                            _reverseBlockedLogged = false;
+                            var currentPosition = GetCurrentTrackPosition();
+                            TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : 0f;
+                        }
                     }
                 }
 
@@ -688,6 +700,28 @@ namespace DVRouteManager
             Coupler firstCouplerInRange = lastCoupler?.GetFirstCouplerInRange(range);
             Coupler firstCouplerInRange2 = lastCoupler2?.GetFirstCouplerInRange(range);
             return firstCouplerInRange != null || firstCouplerInRange2 != null;
+        }
+
+        bool IsReversePathBlocked()
+        {
+            Coupler leadingCoupler = GetCouplerLeadingAfterReverse();
+            Coupler obstacle = leadingCoupler?.GetFirstCouplerInRange(REVERSE_COUPLER_CLEARANCE);
+            if (obstacle == null)
+                return false;
+
+            if (!_reverseBlockedLogged)
+            {
+                Terminal.Log($"Reverse blocked: coupler occupied within {REVERSE_COUPLER_CLEARANCE:0}m");
+                _reverseBlockedLogged = true;
+            }
+            return true;
+        }
+
+        Coupler GetCouplerLeadingAfterReverse()
+        {
+            bool currentlyForward = remoteControl.GetReverserSymbol().ToUpper() == "F";
+            Coupler couplerOnNewLeadingSide = currentlyForward ? trainCar?.rearCoupler : trainCar?.frontCoupler;
+            return CouplerLogic.GetLastCoupler(couplerOnNewLeadingSide);
         }
 
         IEnumerator Reverse()
