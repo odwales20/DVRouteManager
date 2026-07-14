@@ -34,6 +34,19 @@ namespace DVRouteManager
         private const float SHIFT_COOLDOWN = 3.0f; // seconds between shifts
         private const float DM3_MAX_SPEED  = 70f;  // km/h
 
+        // DriverAssist-style protection defaults. These are deliberately hard-coded for
+        // the AI controller so it remains independent from the DriverAssist mod.
+        private const float THROTTLE_NOTCH = 1f / 11f;
+        private const float PROTECTION_OPERATING_TEMP = 105f;
+        private const float PROTECTION_DANGER_TEMP = 118f;
+        private const float PROTECTION_MAX_ACCEL_MS2 = 0.25f;
+        private const float PROTECTION_BRAKING_TIME = 10f;
+        private const float PROTECTION_BRAKE_RELEASE_FACTOR = 0.5f;
+        private const float PROTECTION_MIN_BRAKE = 0.1f;
+        private const float PROTECTION_BRAKE_SPEED_BAND = 2.5f;
+        private const float DE2_MAX_AMPS = 750f;
+        private const float DE6_MAX_AMPS = 1450f;
+
         private float _lastGearRpm    = 0f;
         private float _lastShiftTime  = -999f;
         private bool  _awaitingShift  = false; // throttle zeroed, waiting for RPM to drop before moving lever
@@ -43,6 +56,7 @@ namespace DVRouteManager
         private LocoIndicatorReader        _indicators;
         private InteriorControlsManager    _interiorControls;
         private bool                       _isDM3;
+        private string                     _locoId = "";
 
         // ── Steam (S060 / S282) state ────────────────────────────────────────
         private bool                       _isSteam;
@@ -72,6 +86,11 @@ namespace DVRouteManager
         private MethodInfo _dm3TryGetPortMI;
         private PropertyInfo _dm3PortValueProp;
 
+        // DriverAssist-style protection state
+        private float _lastProtectionTemp = -1f;
+        private float _lastProtectionTempTime = -1f;
+        private float _protectionTempRate = 0f;
+
         // ────────────────────────────────────────────────────────────────────
 
         public LocoCruiseControl(ILocomotiveRemoteControl remoteControl, TrainCar car = null)
@@ -81,12 +100,12 @@ namespace DVRouteManager
 
             if (car != null)
             {
-                _isDM3        = car.carLivery?.parentType?.id == LOCO_DM3;
+                _locoId       = car.carLivery?.parentType?.id ?? "";
+                _isDM3        = _locoId == LOCO_DM3;
                 _indicators   = car.GetComponentInChildren<LocoIndicatorReader>();
                 // Interior controls loaded lazily (may be null until player enters cab)
 
-                string locoId = car.carLivery?.parentType?.id ?? "";
-                _isSteam = locoId.Contains("S060") || locoId.Contains("S282");
+                _isSteam = _locoId.Contains("S060") || _locoId.Contains("S282");
                 if (_isSteam)
                     _steamOverrider = car.SimController?.controlsOverrider;
             }
@@ -187,6 +206,7 @@ namespace DVRouteManager
                 // Cap throttle at low speed to prevent traction motor overload (DE4 etc.)
                 if (speed < 5f)  newThrottle = Mathf.Min(newThrottle, 0.25f);
                 else if (speed < 15f) newThrottle = Mathf.Min(newThrottle, 0.55f);
+                newThrottle = ApplyThrottleProtection(newThrottle, simOverrider.Throttle.Value, speed, acceleration);
                 simOverrider.Throttle.Set(newThrottle);
             }
             else
@@ -195,20 +215,143 @@ namespace DVRouteManager
             }
 
             // ── Brake: proportional to overspeed ─────────────────────────────
-            float brakeTarget = 0f;
-            if (TargetSpeed < Mathf.Epsilon)
-                brakeTarget = 1f;
-            else if (error < -3.0f)
-                brakeTarget = Mathf.Clamp01((-error - 3f) / 20f);
-
             if (simOverrider?.Brake != null)
-                simOverrider.Brake.Set(brakeTarget);
+                ApplyPredictiveBrake(simOverrider, speed, acceleration, error);
             else if (error < -3.0f || TargetSpeed < Mathf.Epsilon)
                 remoteControl.UpdateBrake(0.3f * error * -1.0f * dt);
             else if (remoteControl.GetTargetBrake() > Mathf.Epsilon)
                 remoteControl.UpdateBrake(-30.0f * dt);
 
             return targetAcceleration;
+        }
+
+        private float ApplyThrottleProtection(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationKmhS)
+        {
+            float cappedThrottle = requestedThrottle;
+            float temp = GetLocoTemperature();
+            float projectedTemp = UpdateProjectedTemperature(temp);
+            float maxAmps = GetMaxSafeAmps();
+            float amps = GetLocoAmps();
+            float accelerationMs2 = accelerationKmhS / 3.6f;
+
+            bool reduceThrottle = false;
+
+            if (projectedTemp >= PROTECTION_DANGER_TEMP)
+            {
+                reduceThrottle = true;
+            }
+            else if (projectedTemp >= PROTECTION_OPERATING_TEMP && _protectionTempRate >= 0f && accelerationMs2 > 0.025f)
+            {
+                reduceThrottle = true;
+            }
+
+            if (maxAmps > 0f && amps >= maxAmps)
+                reduceThrottle = true;
+
+            if (remoteControl.IsWheelslipping())
+                reduceThrottle = true;
+
+            if (accelerationMs2 >= PROTECTION_MAX_ACCEL_MS2 && currentThrottle > THROTTLE_NOTCH)
+                reduceThrottle = true;
+
+            if (reduceThrottle)
+                cappedThrottle = Mathf.Min(cappedThrottle, Mathf.Max(0f, currentThrottle - THROTTLE_NOTCH));
+
+            return Mathf.Clamp01(cappedThrottle);
+        }
+
+        private void ApplyPredictiveBrake(BaseControlsOverrider simOverrider, float speedKmh, float accelerationKmhS, float speedError)
+        {
+            bool lightEngine = trainCar?.trainset?.cars != null && trainCar.trainset.cars.Count == 1;
+            float trainBrake = simOverrider.Brake?.Value ?? 0f;
+            float independentBrake = simOverrider.IndependentBrake?.Value ?? 0f;
+            float activeBrake = lightEngine ? independentBrake : trainBrake;
+            float brakeTarget = 0f;
+
+            if (TargetSpeed < Mathf.Epsilon)
+            {
+                brakeTarget = 1f;
+            }
+            else
+            {
+                float projectedSpeed = speedKmh + accelerationKmhS * PROTECTION_BRAKING_TIME;
+                bool projectedOverspeed = speedKmh > TargetSpeed - 1f && projectedSpeed > TargetSpeed + PROTECTION_BRAKE_SPEED_BAND;
+                bool actualOverspeed = speedError < -3f;
+
+                if (projectedOverspeed)
+                    brakeTarget = Mathf.Clamp01(activeBrake + THROTTLE_NOTCH);
+                else if (actualOverspeed)
+                    brakeTarget = Mathf.Clamp01(Mathf.Max(PROTECTION_MIN_BRAKE, (-speedError - 3f) / 20f));
+                else
+                    brakeTarget = Mathf.Max(0f, activeBrake - PROTECTION_BRAKE_RELEASE_FACTOR * activeBrake);
+            }
+
+            if (lightEngine)
+            {
+                simOverrider.Brake.Set(0f);
+                simOverrider.IndependentBrake?.Set(brakeTarget);
+            }
+            else
+            {
+                simOverrider.Brake.Set(brakeTarget);
+                simOverrider.IndependentBrake?.Set(0f);
+            }
+        }
+
+        private float GetLocoTemperature()
+        {
+            try
+            {
+                if (_indicators == null)
+                    _indicators = trainCar?.GetComponentInChildren<LocoIndicatorReader>();
+
+                if (_indicators?.tmTemp != null)
+                    return _indicators.tmTemp.Value;
+                if (_indicators?.oilTemp != null)
+                    return _indicators.oilTemp.Value;
+            }
+            catch { }
+
+            return 0f;
+        }
+
+        private float UpdateProjectedTemperature(float currentTemp)
+        {
+            if (currentTemp <= 0f)
+                return 0f;
+
+            float now = Time.time;
+            if (_lastProtectionTemp > 0f && _lastProtectionTempTime >= 0f)
+            {
+                float dt = Mathf.Max(0.1f, now - _lastProtectionTempTime);
+                _protectionTempRate = (currentTemp - _lastProtectionTemp) / dt;
+            }
+
+            _lastProtectionTemp = currentTemp;
+            _lastProtectionTempTime = now;
+            return currentTemp + _protectionTempRate;
+        }
+
+        private float GetLocoAmps()
+        {
+            try
+            {
+                if (_indicators == null)
+                    _indicators = trainCar?.GetComponentInChildren<LocoIndicatorReader>();
+
+                return _indicators?.amps != null ? _indicators.amps.Value : 0f;
+            }
+            catch { return 0f; }
+        }
+
+        private float GetMaxSafeAmps()
+        {
+            string id = _locoId ?? "";
+            if (id.Contains("DE2") || id.Contains("Shunter"))
+                return DE2_MAX_AMPS;
+            if (id.Contains("DE6") || id.Contains("Diesel"))
+                return DE6_MAX_AMPS;
+            return 0f;
         }
 
         private float GetDM3Rpm()

@@ -13,7 +13,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
 
-Current debug build marker: **b018**.
+Current debug build marker: **b019**.
 
 ### AI Speed Limit System (WIP)
 
@@ -31,28 +31,30 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Yard speed cap: `[Y]` tracks are limited to 50 km/h (these are excluded from sign placement but still need a sensible limit)
 - DE4 startup fix: throttle capped at 25 % below 5 km/h to prevent traction motor overload from standstill
 - Debug reload cleanup: UMM reload removes stale CommsRadioAPI modes so the Comms Radio build marker updates after reload
+- DriverAssist-style controller protections: throttle backs off for projected overheating, excessive amps, wheel slip, and high acceleration; braking now uses a 10-second projected overspeed check
 
 ### Known Remaining Issues
 
 - Speed limiting on `Road`-prefixed tracks is still being tuned — the game removes signs from these tracks via `noSignsTrackNameMarks` (not readable at runtime), so our geometry-based limits may be slightly conservative on some road sections
-- The AI now follows sign-derived limits with a fixed 5 km/h margin, but braking and overspeed behaviour still needs testing across heavier consists, gradients, and poor adhesion
+- The AI now follows sign-derived limits with a fixed 5 km/h margin and DriverAssist-style controller protections, but braking and overspeed behaviour still needs testing across heavier consists, gradients, and poor adhesion
 - Freight haul AI is not production-ready yet; speed-limit tuning is still in progress and heavy trains may still derail
 - Comms Radio reload is supported for testing, but a full game restart is still the safest way to confirm a clean mod load after larger code changes
 
 ### Next Test TODO
 
-- Reload into **b018** and confirm the Comms Radio build marker updates after UMM reload
-- Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin enabled; watch for flange squeal, overspeed, and braking before tighter curves
+- Reload into **b019** and confirm the Comms Radio build marker updates after UMM reload
+- Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin and DriverAssist-style protections enabled; watch for flange squeal, overspeed, high acceleration, wheel slip, and braking before tighter curves
 - After light-engine testing looks stable, test a freight consist on the same route and check whether the margin is enough for heavier braking lag
 
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b018`
+- Current debug build marker: `b019`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
-- Next test should start by reloading into `b018` so the 5 km/h margin and comm radio reload cleanup are active
+- Next test should start by reloading into `b019` so the 5 km/h margin, comm radio reload cleanup, and DriverAssist-style protection layer are active
 - Recent important commits:
+  - b019 - add DriverAssist-style cruise protections
   - `abef2ed` - add AI speed limit margin
   - `7e53bc9` - remove stale comm radio modes on reload
   - `9100816` - fix debug reload and speed limit recovery
@@ -79,6 +81,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - **Drive to destination** — set a destination via Comms Radio; AI drives there automatically
 - **Freight haul automation** — 4-phase: route to cars → couple → drive → deliver
 - **Speed limit lookahead** — geometry-based, position-aware per-segment limits with a 5 km/h target margin
+- **DriverAssist-style safety layer** — reduces throttle for heat, amps, wheel slip, and high acceleration; applies predictive braking before overspeed grows
 - **Turntable awareness** — stops and waits for turntable to finish rotating
 - **Competing mod safety** — disables DriverAssist and SteamCruiseControl on start
 
