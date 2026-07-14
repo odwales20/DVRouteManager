@@ -2,3 +2,10 @@
 /.claude
 /PORTING_NOTES.md
 /SESSION_RESUME.md
+
+# Build outputs
+/DVRouteManager/bin/
+/DVRouteManager/obj/
+
+# Local release staging
+/$staging/
