@@ -26,8 +26,8 @@ namespace DVRouteManager
         // Per-instance cache: per-300m-segment speed profiles, mirroring SignPlacer.GetTrackSigns.
         // null entry = track is excluded (ShouldIncludeTrack / noSignsTrackNameMarks) → 120 km/h.
         // Non-null = list of (distFromTrackStart, speedLimitKmh) for restricted segments only.
-        private readonly Dictionary<RailTrack, List<(float dist, float speed)>> _speedProfileCache
-            = new Dictionary<RailTrack, List<(float dist, float speed)>>();
+        private readonly Dictionary<string, List<(float dist, float speed)>> _speedProfileCache
+            = new Dictionary<string, List<(float dist, float speed)>>();
 
 #if DEBUG
         private RailTrack _lastLookaheadLimitTrack = null;
@@ -67,29 +67,63 @@ namespace DVRouteManager
             return false;
         }
 
-        // Returns the cached speed profile for a track (null = excluded, 120 km/h everywhere).
-        private List<(float dist, float speed)> GetTrackProfile(RailTrack track)
+        private static string GetProfileCacheKey(RailTrack track, bool forward)
+        {
+            return $"{track.GetInstanceID()}:{forward}";
+        }
+
+        private static bool IsYardTrack(RailTrack track)
+        {
+            return track?.name?.StartsWith("[Y]") == true;
+        }
+
+        // Returns the cached speed profile for a track and travel direction (null = excluded, 120 km/h everywhere).
+        private List<(float dist, float speed)> GetTrackProfile(RailTrack track, bool forward)
         {
             if (track == null) return null;
+            string key = GetProfileCacheKey(track, forward);
             List<(float, float)> profile;
-            if (_speedProfileCache.TryGetValue(track, out profile)) return profile;
-            profile = ComputeTrackProfile(track);
-            _speedProfileCache[track] = profile;
+            if (_speedProfileCache.TryGetValue(key, out profile)) return profile;
+            profile = ComputeTrackProfile(track, forward);
+            _speedProfileCache[key] = profile;
             return profile;
         }
 
         private const float YARD_SPEED_LIMIT = 50f;
 
         // Minimum speed limit anywhere on the current track (conservative; used while on that track).
-        private float GetCurrentTrackMinSpeed(RailTrack track)
+        private float GetCurrentTrackMinSpeed(RailTrack track, bool forward)
         {
             // Yard tracks ([Y] prefix) are excluded from sign placement but should still be slow
-            if (track?.name?.StartsWith("[Y]") == true) return YARD_SPEED_LIMIT;
-            var profile = GetTrackProfile(track);
+            if (IsYardTrack(track)) return YARD_SPEED_LIMIT;
+            var profile = GetTrackProfile(track, forward);
             if (profile == null || profile.Count == 0) return 120f;
             float min = 120f;
             foreach (var (_, spd) in profile) if (spd < min) min = spd;
             return min;
+        }
+
+        private bool GetRouteDirection(RailTrack track, int index)
+        {
+            var path = RouteTracker?.Route?.Path;
+            if (track == null || path == null)
+                return true;
+
+            RailTrack next = index >= 0 && index + 1 < path.Count ? path[index + 1] : null;
+            if (next != null)
+            {
+                if (track.IsTrackOutBranch(next)) return true;
+                if (track.IsTrackInBranch(next)) return false;
+            }
+
+            RailTrack prev = index > 0 ? path[index - 1] : null;
+            if (prev != null)
+            {
+                if (track.IsTrackInBranch(prev)) return true;
+                if (track.IsTrackOutBranch(prev)) return false;
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -101,11 +135,18 @@ namespace DVRouteManager
         /// </summary>
         private float GetLookaheadSpeedLimit(RailTrack currentTrack, float currentSpeedKmh)
         {
-            float currentLimit = GetCurrentTrackMinSpeed(currentTrack);
+            var path = RouteTracker?.Route?.Path;
+            if (path == null) return GetCurrentTrackMinSpeed(currentTrack, true);
+
+            int startIdx = path.IndexOf(currentTrack);
+            if (startIdx < 0) return GetCurrentTrackMinSpeed(currentTrack, true);
+
+            bool currentForward = GetRouteDirection(currentTrack, startIdx);
+            float currentLimit = GetCurrentTrackMinSpeed(currentTrack, currentForward);
 #if DEBUG
             if (currentLimit < 120f && (currentTrack != _lastCurrentTrack || currentLimit != _lastCurrentLimit))
             {
-                Terminal.Log($"[SpeedLimit] CurrentTrack name={currentTrack?.name} → {currentLimit} km/h");
+                Terminal.Log($"[SpeedLimit] CurrentTrack name={currentTrack?.name} dir={(currentForward ? "F" : "R")} → {currentLimit} km/h");
                 _lastCurrentTrack = currentTrack;
                 _lastCurrentLimit = currentLimit;
             }
@@ -115,12 +156,6 @@ namespace DVRouteManager
                 _lastCurrentLimit = -1f;
             }
 #endif
-
-            var path = RouteTracker?.Route?.Path;
-            if (path == null) return currentLimit;
-
-            int startIdx = path.IndexOf(currentTrack);
-            if (startIdx < 0) return currentLimit;
 
             // Game places UpcomingSpeedDown signs ~speed*2 m before the limit change.
             // Use speed*3 for a small safety margin.
@@ -139,7 +174,7 @@ namespace DVRouteManager
                 if (t == null) break;
 
                 // Yard tracks cap at YARD_SPEED_LIMIT regardless of geometry
-                if (t.name.StartsWith("[Y]"))
+                if (IsYardTrack(t))
                 {
                     if (YARD_SPEED_LIMIT < minLimit)
                     {
@@ -152,7 +187,8 @@ namespace DVRouteManager
                 }
                 else
                 {
-                    var profile = GetTrackProfile(t);
+                    bool forward = GetRouteDirection(t, i);
+                    var profile = GetTrackProfile(t, forward);
                     if (profile != null)
                     {
                         foreach (var (segDist, segSpeed) in profile)
@@ -198,13 +234,13 @@ namespace DVRouteManager
         //   BezierArcApproximation(error=1f) → ChunkifyNumbers(300m) → MinimizeSpeedDifference(30f, 300f)
         // Returns per-segment (distFromTrackStart, speedLimitKmh) list, or null if excluded.
         // Only segments with limit < 120 km/h are included.
-        private static List<(float dist, float speed)> ComputeTrackProfile(RailTrack track)
+        private static List<(float dist, float speed)> ComputeTrackProfile(RailTrack track, bool forward)
         {
             if (track?.curve == null) return null;
             // SignPlacer.ShouldIncludeTrack: skip tracks < 100m, [Y] prefix, [#] prefix
             if (track.curve.length < 100f) return null;
             string name = track.name;
-            if (name.StartsWith("[Y]") || name.StartsWith("[#]")) return null;
+            if (name == null || name.StartsWith("[Y]") || name.StartsWith("[#]")) return null;
 
             var arcs = new List<BezierArcApproximation.Arc>();
             BezierArcApproximation.CalculateArcs(track.curve, 1f, arcs); // error=1f matches game
@@ -256,25 +292,37 @@ namespace DVRouteManager
             // Junction end cap: game caps last segment to 60 km/h when track ends at a junction.
             // outJunction = junction at the bezier t=1 end (forward direction).
             // inJunction  = junction at the bezier t=0 end (reverse direction).
-            if (track.outJunction != null && segs.Count > 0)
+            if (forward && track.outJunction != null && segs.Count > 0)
             {
                 var last = segs[segs.Count - 1];
                 if (last.speed > 60f) segs[segs.Count - 1] = (last.dist, 60f, last.len);
             }
-            if (track.inJunction != null && segs.Count > 0)
+            else if (!forward && track.inJunction != null && segs.Count > 0)
             {
                 var first = segs[0];
-                if (first.speed > 60f) segs[0] = (0f, 60f, first.len);
+                if (first.speed > 60f) segs[0] = (first.dist, 60f, first.len);
             }
 
             // Collect restricted segments
             var profile = new List<(float dist, float speed)>();
-            foreach (var (dist, speed, _) in segs)
+            foreach (var (dist, speed, len) in segs)
+            {
                 if (speed < 120f) profile.Add((dist, speed));
+            }
+
+            if (!forward && profile.Count > 0)
+            {
+                float trackLength = (float)track.LogicTrack().length;
+                profile = segs
+                    .Where(s => s.speed < 120f)
+                    .Select(s => (Mathf.Max(0f, trackLength - (s.dist + s.len)), s.speed))
+                    .OrderBy(s => s.Item1)
+                    .ToList();
+            }
 
 #if DEBUG
             if (profile.Count > 0)
-                Terminal.Log($"[SpeedLimit] Profile {name}: " + string.Join(", ", profile.Select(p => $"{p.dist:0}m→{p.speed}km/h")));
+                Terminal.Log($"[SpeedLimit] Profile {name} dir={(forward ? "F" : "R")}: " + string.Join(", ", profile.Select(p => $"{p.dist:0}m→{p.speed}km/h")));
 #endif
 
             return profile.Count > 0 ? profile : null;
@@ -363,6 +411,9 @@ namespace DVRouteManager
 
         public bool StartAI(RouteTracker routeTracker)
         {
+            if (routeTracker == null || routeTracker.Route == null)
+                return false;
+
             if(RouteTracker != null)
             {
                 RouteTracker.Dispose();
@@ -385,6 +436,17 @@ namespace DVRouteManager
             }
 
             return true;
+        }
+
+        private RailTrack GetCurrentBogieTrack()
+        {
+            if (trainCar?.Bogies == null || !trainCar.Bogies.Any())
+                return null;
+
+            return trainCar.Bogies
+                .Where(b => b != null && !b.HasDerailed && b.track != null)
+                .Select(b => b.track)
+                .FirstOrDefault();
         }
 
         private IEnumerator ReleaseAllBrakes()
@@ -453,7 +515,7 @@ namespace DVRouteManager
                 {
                     if (IsCouplerInRange(1.00f))
                     {
-                        Terminal.Log($"coupler in ranch");
+                        Terminal.Log("Coupler in range");
                         break; //stop train
                     }
                     else if (IsCouplerInRange(7.0f))
@@ -477,12 +539,14 @@ namespace DVRouteManager
                     }
                     else
                     {
-                        TargetSpeed = GetLookaheadSpeedLimit(trainCar.Bogies[0].track, speed);
+                        RailTrack currentTrack = GetCurrentBogieTrack();
+                        TargetSpeed = currentTrack != null ? GetLookaheadSpeedLimit(currentTrack, speed) : 0f;
                     }
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.OnStart)
                 {
-                    TargetSpeed = GetLookaheadSpeedLimit(trainCar.Bogies[0].track, speed);
+                    RailTrack currentTrack = GetCurrentBogieTrack();
+                    TargetSpeed = currentTrack != null ? GetLookaheadSpeedLimit(currentTrack, speed) : 0f;
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.StopTrainAfterSwitch)
                 {
@@ -509,7 +573,8 @@ namespace DVRouteManager
                     {
                         yield return Module.StartCoroutine(Reverse());
                         shouldreverse = false;
-                        TargetSpeed = GetLookaheadSpeedLimit(trainCar.Bogies[0].track, speed);
+                        RailTrack currentTrack = GetCurrentBogieTrack();
+                        TargetSpeed = currentTrack != null ? GetLookaheadSpeedLimit(currentTrack, speed) : 0f;
                     }
                 }
 
@@ -550,15 +615,16 @@ namespace DVRouteManager
                 yield return new WaitForSeconds(0.3f);
             }
 
-            RouteTracker.Dispose();
+            if (RouteTracker != Module.ActiveRoute?.RouteTracker)
+                RouteTracker.Dispose();
         }
 
         bool IsCouplerInRange(float range)
         {
             Coupler lastCoupler = CouplerLogic.GetLastCoupler(this.RouteTracker.Trainset.firstCar.frontCoupler);
             Coupler lastCoupler2 = CouplerLogic.GetLastCoupler(this.RouteTracker.Trainset.lastCar.rearCoupler);
-            Coupler firstCouplerInRange = lastCoupler.GetFirstCouplerInRange(range);
-            Coupler firstCouplerInRange2 = lastCoupler2.GetFirstCouplerInRange(range);
+            Coupler firstCouplerInRange = lastCoupler?.GetFirstCouplerInRange(range);
+            Coupler firstCouplerInRange2 = lastCoupler2?.GetFirstCouplerInRange(range);
             return firstCouplerInRange != null || firstCouplerInRange2 != null;
         }
 
@@ -661,7 +727,12 @@ namespace DVRouteManager
                 Module.ActiveRoute.Route = toCarsTask.Result;
                 Module.ActiveRoute.RouteTracker = tracker1;
 
-                StartAI(tracker1);
+                if (!StartAI(tracker1))
+                {
+                    Terminal.Log("Freight haul: AI could not start route to cars");
+                    _freightHaulActive = false;
+                    yield break;
+                }
                 while (running && _freightHaulActive) yield return null;
 
                 if (!_freightHaulActive) { Stop(); yield break; }
@@ -697,7 +768,12 @@ namespace DVRouteManager
             Module.ActiveRoute.Route = toDestTask.Result;
             Module.ActiveRoute.RouteTracker = tracker2;
 
-            StartAI(tracker2);
+            if (!StartAI(tracker2))
+            {
+                Terminal.Log("Freight haul: AI could not start route to destination");
+                _freightHaulActive = false;
+                yield break;
+            }
             while (running && _freightHaulActive) yield return null;
 
             if (!_freightHaulActive) { Stop(); yield break; }
@@ -716,8 +792,8 @@ namespace DVRouteManager
             // Couple any couplers at the ends of the current trainset that are in range
             Coupler frontEnd = CouplerLogic.GetLastCoupler(loco.trainset.firstCar.frontCoupler);
             Coupler rearEnd = CouplerLogic.GetLastCoupler(loco.trainset.lastCar.rearCoupler);
-            frontEnd.GetFirstCouplerInRange(2.5f)?.TryCouple();
-            rearEnd.GetFirstCouplerInRange(2.5f)?.TryCouple();
+            frontEnd?.GetFirstCouplerInRange(2.5f)?.TryCouple();
+            rearEnd?.GetFirstCouplerInRange(2.5f)?.TryCouple();
             yield return new WaitForSeconds(0.5f);
 
             // Release handbrakes on all non-loco cars now in the trainset

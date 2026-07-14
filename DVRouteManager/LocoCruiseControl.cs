@@ -302,6 +302,41 @@ namespace DVRouteManager
             return true;
         }
 
+        private static int? ParseDM3GearPosition(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            foreach (char c in value)
+            {
+                if (c >= '1' && c <= '3')
+                    return c - '0';
+            }
+
+            return null;
+        }
+
+        private void SyncDM3GearIndexFromControls()
+        {
+            var controls = GetInteriorControls();
+            if (controls == null)
+                return;
+
+            var gearA = ParseDM3GearPosition(controls.GetCurrentPositionName(InteriorControlsManager.ControlType.GearboxA).value);
+            var gearB = ParseDM3GearPosition(controls.GetCurrentPositionName(InteriorControlsManager.ControlType.GearboxB).value);
+            if (!gearA.HasValue || !gearB.HasValue)
+                return;
+
+            for (int i = 0; i < DM3_GEAR_SEQUENCE.Length; i++)
+            {
+                if (DM3_GEAR_SEQUENCE[i].GearA == gearA.Value && DM3_GEAR_SEQUENCE[i].GearB == gearB.Value)
+                {
+                    _currentDM3GearIndex = i;
+                    return;
+                }
+            }
+        }
+
         // ── DM3 gear management ──────────────────────────────────────────────
         // Returns true while a shift is in progress (PID caller should skip output).
         private bool HandleDM3GearShift(float dt)
@@ -311,6 +346,8 @@ namespace DVRouteManager
                 return false;
 
             float now = Time.time;
+            if (!_awaitingShift)
+                SyncDM3GearIndexFromControls();
 
             if (_awaitingShift)
             {
