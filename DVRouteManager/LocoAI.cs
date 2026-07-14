@@ -17,6 +17,7 @@ namespace DVRouteManager
     {
         private const float TARGET_SPEED_DEFAULT = 20.0f;
         private const float COUPLER_APPROACH_SPEED = 5.0f;
+        private const float SPEED_LIMIT_TARGET_MARGIN = 5.0f; // ~3 mph headroom under sign-derived limits
         private RouteTracker RouteTracker;
 
         public bool IsRunning => running;
@@ -286,7 +287,15 @@ namespace DVRouteManager
             }
 #endif
 
-            return minLimit;
+            return ApplySpeedLimitMargin(minLimit);
+        }
+
+        private static float ApplySpeedLimitMargin(float speedLimit)
+        {
+            if (speedLimit <= COUPLER_APPROACH_SPEED)
+                return speedLimit;
+
+            return Mathf.Max(COUPLER_APPROACH_SPEED, speedLimit - SPEED_LIMIT_TARGET_MARGIN);
         }
 
         // Exact copy of SignPlacer.GetTrackSigns pipeline:
