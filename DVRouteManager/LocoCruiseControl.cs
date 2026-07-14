@@ -46,6 +46,7 @@ namespace DVRouteManager
         private const float PROTECTION_BRAKE_SPEED_BAND = 2.5f;
         private const float DE2_MAX_AMPS = 750f;
         private const float DE6_MAX_AMPS = 1450f;
+        private const float DM3_MIN_TORQUE = 35000f;
 
         private float _lastGearRpm    = 0f;
         private float _lastShiftTime  = -999f;
@@ -85,6 +86,11 @@ namespace DVRouteManager
         private SimController _dm3SimCtrl;
         private MethodInfo _dm3TryGetPortMI;
         private PropertyInfo _dm3PortValueProp;
+
+        // Generic simFlow port cache for DriverAssist-style protection reads
+        private SimController _protectionSimCtrl;
+        private MethodInfo _protectionTryGetPortMI;
+        private PropertyInfo _protectionPortValueProp;
 
         // DriverAssist-style protection state
         private float _lastProtectionTemp = -1f;
@@ -256,8 +262,26 @@ namespace DVRouteManager
 
             if (reduceThrottle)
                 cappedThrottle = Mathf.Min(cappedThrottle, Mathf.Max(0f, currentThrottle - THROTTLE_NOTCH));
+            else if (_isDM3 && ShouldAddDm3HillClimbThrottle(cappedThrottle, currentThrottle, speedKmh, accelerationMs2, projectedTemp))
+                cappedThrottle = Mathf.Max(cappedThrottle, Mathf.Min(1f, currentThrottle + THROTTLE_NOTCH));
 
             return Mathf.Clamp01(cappedThrottle);
+        }
+
+        private bool ShouldAddDm3HillClimbThrottle(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationMs2, float projectedTemp)
+        {
+            if (requestedThrottle <= currentThrottle || currentThrottle >= 1f)
+                return false;
+            if (projectedTemp >= PROTECTION_OPERATING_TEMP)
+                return false;
+            if (accelerationMs2 >= PROTECTION_MAX_ACCEL_MS2)
+                return false;
+
+            float torque = Mathf.Abs(GetSimPortValue("traction.TORQUE_IN"));
+            if (torque <= 0f)
+                return false;
+
+            return torque < DM3_MIN_TORQUE && accelerationMs2 < 0.05f && speedKmh < TargetSpeed - 1f;
         }
 
         private void ApplyPredictiveBrake(BaseControlsOverrider simOverrider, float speedKmh, float accelerationKmhS, float speedError)
@@ -271,6 +295,11 @@ namespace DVRouteManager
             if (TargetSpeed < Mathf.Epsilon)
             {
                 brakeTarget = 1f;
+            }
+            else if (_isDM3 && !lightEngine)
+            {
+                float projectedSpeed = speedKmh + accelerationKmhS * PROTECTION_BRAKING_TIME;
+                brakeTarget = projectedSpeed > TargetSpeed + PROTECTION_BRAKE_SPEED_BAND || speedError < -3f ? 2f / 3f : 0f;
             }
             else
             {
@@ -352,6 +381,37 @@ namespace DVRouteManager
             if (id.Contains("DE6") || id.Contains("Diesel"))
                 return DE6_MAX_AMPS;
             return 0f;
+        }
+
+        private float GetSimPortValue(string portId)
+        {
+            try
+            {
+                if (_protectionSimCtrl == null)
+                    _protectionSimCtrl = trainCar?.SimController;
+
+                if (_protectionSimCtrl?.simFlow == null)
+                    return 0f;
+
+                if (_protectionTryGetPortMI == null)
+                    _protectionTryGetPortMI = _protectionSimCtrl.simFlow.GetType()
+                        .GetMethod("TryGetPort", BindingFlags.Instance | BindingFlags.Public);
+
+                if (_protectionTryGetPortMI == null)
+                    return 0f;
+
+                var args = new object[] { portId, null, true };
+                if (!(bool)_protectionTryGetPortMI.Invoke(_protectionSimCtrl.simFlow, args) || args[1] == null)
+                    return 0f;
+
+                if (_protectionPortValueProp == null)
+                    _protectionPortValueProp = args[1].GetType().GetProperty("Value");
+
+                return _protectionPortValueProp != null
+                    ? (float)_protectionPortValueProp.GetValue(args[1])
+                    : 0f;
+            }
+            catch { return 0f; }
         }
 
         private float GetDM3Rpm()

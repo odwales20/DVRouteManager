@@ -13,7 +13,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
 
-Current debug build marker: **b019**.
+Current debug build marker: **b020**.
 
 ### AI Speed Limit System (WIP)
 
@@ -32,6 +32,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - DE4 startup fix: throttle capped at 25 % below 5 km/h to prevent traction motor overload from standstill
 - Debug reload cleanup: UMM reload removes stale CommsRadioAPI modes so the Comms Radio build marker updates after reload
 - DriverAssist-style controller protections: throttle backs off for projected overheating, excessive amps, wheel slip, and high acceleration; braking now uses a 10-second projected overspeed check
+- DM3-specific DriverAssist behaviour: DM3 consists use manual-lap style train braking, and low-torque hill-climb throttle support is included alongside the existing DM3 gear shifting
 
 ### Known Remaining Issues
 
@@ -42,18 +43,20 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Next Test TODO
 
-- Reload into **b019** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b020** and confirm the Comms Radio build marker updates after UMM reload
 - Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin and DriverAssist-style protections enabled; watch for flange squeal, overspeed, high acceleration, wheel slip, and braking before tighter curves
+- Test DM3 specifically: confirm gear shifting still works, loaded consists use controlled train braking, and hill climbs do not stall from over-aggressive throttle limiting
 - After light-engine testing looks stable, test a freight consist on the same route and check whether the margin is enough for heavier braking lag
 
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b019`
+- Current debug build marker: `b020`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
-- Next test should start by reloading into `b019` so the 5 km/h margin, comm radio reload cleanup, and DriverAssist-style protection layer are active
+- Next test should start by reloading into `b020` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, and DM3-specific protection are active
 - Recent important commits:
+  - b020 - include DM3 DriverAssist-style protections
   - b019 - add DriverAssist-style cruise protections
   - `abef2ed` - add AI speed limit margin
   - `7e53bc9` - remove stale comm radio modes on reload
@@ -73,7 +76,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Cruise Control
 - **PID speed controller**
-- **DM3 automatic gear shifting** — up at >800 RPM, down at <600 RPM, 70 km/h cap
+- **DM3 automatic gear shifting** — up at >800 RPM, down at <600 RPM, 70 km/h cap, plus manual-lap braking for DM3 consists
 - **Steam loco support (S060 / S282)** — pressure-aware cutoff, pulse braking
 - **Overheat protection** — throttle backed off at Warning, forced down at Critical
 
