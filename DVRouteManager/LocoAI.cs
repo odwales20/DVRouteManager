@@ -639,7 +639,8 @@ namespace DVRouteManager
                         {
                             shouldreverse = false;
                             yield return ReleaseAllBrakes();
-                            TargetSpeed = COUPLER_APPROACH_SPEED;
+                            var currentPosition = GetCurrentTrackPosition();
+                            TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : TARGET_SPEED_DEFAULT;
                         }
                         else
                         {
