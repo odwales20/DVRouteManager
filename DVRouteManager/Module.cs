@@ -24,7 +24,7 @@ namespace DVRouteManager
 #endif
     static class Module
     {
-        public const string BUILD = "b016";
+        public const string BUILD = "b017";
         private const string AUDIO_DIRECTORY = "audio\\";
         public static UnityModManager.ModEntry mod;
         public static Settings settings;
@@ -387,6 +387,7 @@ namespace DVRouteManager
 
             try
             {
+                RemoveCommsRouteManager();
                 commsRadioMode = CommsRadioMode.Create(new RouteManagerInitialState(), new Color(0.5f, 0.5f, 0.5f));
                 Module.mod.Logger.Log("Comm radio mode added via CommsRadioAPI");
             }
@@ -398,7 +399,64 @@ namespace DVRouteManager
 
         private static void RemoveCommsRouteManager()
         {
-            // CommsRadioAPI does not support runtime removal; mode persists until game restart
+            try
+            {
+                var controller = UnityEngine.Object.FindObjectOfType<CommsRadioController>();
+                if (controller == null)
+                    return;
+
+                var allModesField = typeof(CommsRadioController).GetField("allModes", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (!(allModesField?.GetValue(controller) is IList modes))
+                    return;
+
+                int removed = 0;
+                for (int i = modes.Count - 1; i >= 0; i--)
+                {
+                    object mode = modes[i];
+                    if (!IsRouteManagerCommsMode(mode))
+                        continue;
+
+                    modes.RemoveAt(i);
+                    removed++;
+
+                    if (mode is Component component)
+                        UnityEngine.Object.Destroy(component);
+                }
+
+                if (removed > 0)
+                {
+                    controller.ReactivateModes();
+                    Module.mod.Logger.Log($"Removed {removed} stale RouteManager comm radio mode(s)");
+                }
+
+                commsRadioMode = null;
+            }
+            catch (Exception e)
+            {
+                Module.mod.Logger.Log("Error removing CommsRadio mode: " + e.Message);
+            }
+        }
+
+        private static bool IsRouteManagerCommsMode(object mode)
+        {
+            if (mode == null)
+                return false;
+            if (ReferenceEquals(mode, commsRadioMode))
+                return true;
+
+            Type modeType = mode.GetType();
+            if (modeType.FullName != "CommsRadioAPI.CommsRadioMode")
+                return false;
+
+            return HasRouteManagerState(modeType, mode, "startingState") || HasRouteManagerState(modeType, mode, "activeState");
+        }
+
+        private static bool HasRouteManagerState(Type modeType, object mode, string fieldName)
+        {
+            var field = modeType.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            object state = field?.GetValue(mode);
+            string stateTypeName = state?.GetType().FullName;
+            return stateTypeName != null && stateTypeName.StartsWith("DVRouteManager.CommsRadio.RouteManager", StringComparison.Ordinal);
         }
     }
 }
