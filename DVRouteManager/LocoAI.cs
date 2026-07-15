@@ -19,6 +19,7 @@ namespace DVRouteManager
         private const float COUPLER_APPROACH_SPEED = 5.0f;
         private const float SPEED_LIMIT_TARGET_MARGIN = 5.0f; // ~3 mph headroom under sign-derived limits
         private const float REVERSE_COUPLER_CLEARANCE = 12.0f;
+        private const ReversingStrategy FREIGHT_HAUL_REVERSING_STRATEGY = ReversingStrategy.OnlyIfNeeded;
         private RouteTracker RouteTracker;
 
         public bool IsRunning => running;
@@ -806,7 +807,7 @@ namespace DVRouteManager
             else
             {
 
-                var toCarsTask = Route.FindRoute(locoTrack, carTrack, ReversingStrategy.ChooseBest, loco.trainset);
+                var toCarsTask = Route.FindRoute(locoTrack, carTrack, FREIGHT_HAUL_REVERSING_STRATEGY, loco.trainset);
                 while (!toCarsTask.IsCompleted) yield return null;
 
                 if (!_freightHaulActive) yield break;
@@ -847,7 +848,7 @@ namespace DVRouteManager
             Terminal.Log($"Freight haul: phase 3 – routing to {task.DestinationTrack.ID.FullID}");
 
             Track nowTrack = loco.trainset.firstCar.Bogies[0].track.LogicTrack();
-            var toDestTask = Route.FindRoute(nowTrack, task.DestinationTrack, ReversingStrategy.ChooseBest, loco.trainset);
+            var toDestTask = Route.FindRoute(nowTrack, task.DestinationTrack, FREIGHT_HAUL_REVERSING_STRATEGY, loco.trainset);
             while (!toDestTask.IsCompleted) yield return null;
 
             if (!_freightHaulActive) yield break;

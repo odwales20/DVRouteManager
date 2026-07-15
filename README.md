@@ -13,7 +13,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
 
-Current debug build marker: **b024**.
+Current debug build marker: **b025**.
 
 ### AI Speed Limit System (WIP)
 
@@ -36,6 +36,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Yard reverse safety: before changing direction, the AI checks the coupler on the side that would become the leading end; if another coupler is within 12 m it keeps the current direction and continues at normal AI target speed instead of reversing into the cars
 - Load hardening: missing debug audio files no longer throw startup exceptions, and the update check now has a short timeout
 - DriverAssist compatibility: DriverAssist job-window registration exceptions from unsupported PassengerJobs task structures are suppressed so loading can continue
+- Freight haul route preference: freight haul now uses `OnlyIfNeeded` reversing so it takes a forward/no-reverse route first and only reverses when no forward route can be found
 
 ### Known Remaining Issues
 
@@ -49,22 +50,24 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Next Test TODO
 
-- Reload into **b024** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b025** and confirm the Comms Radio build marker updates after UMM reload
 - Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin and DriverAssist-style protections enabled; watch for flange squeal, overspeed, high acceleration, wheel slip, and braking before tighter curves
 - Test DM3 specifically: confirm gear shifting still works, loaded consists use controlled train braking, and hill climbs do not stall from over-aggressive throttle limiting
 - Test yard reverse safety: put cars close behind the loco/trainset, trigger an AI reversal, and confirm it keeps the other direction at normal AI target speed instead of reversing through them
 - Repeat the yard reverse test with no cars behind it and confirm normal reversing still works
+- Test freight haul route choice: with one clear end and one blocked/stock-heavy end, confirm the AI chooses the clear forward route and only reverses if no no-reverse route exists
 - After light-engine testing looks stable, test a freight consist on the same route and check whether the margin is enough for heavier braking lag
 
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b024`
+- Current debug build marker: `b025`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b024` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, yard reverse safety, load hardening, and DriverAssist job-registration compatibility patch are active
+- Next test should start by reloading into `b025` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, and freight haul no-reverse preference are active
 - Recent important commits:
+  - b025 - prefer no-reverse freight haul routes
   - b024 - suppress DriverAssist PassengerJobs registration exceptions
   - b023 - harden startup audio/update checks
   - b022 - continue normally when reversal is blocked
