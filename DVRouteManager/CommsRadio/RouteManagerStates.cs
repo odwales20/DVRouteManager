@@ -563,7 +563,7 @@ namespace DVRouteManager.CommsRadio
             TrainCar loco = PlayerManager.LastLoco;
             LocoAI ai = Module.TryGetLocoAI(loco);
             bool active = ai != null && (ai.IsRunning || ai.IsFreightHaulActive);
-            var items = new System.Collections.Generic.List<string> { "Freight haul", "Drive to destination" };
+            var items = new System.Collections.Generic.List<string> { "Freight haul", "Drive active route", "Drive to destination" };
             if (active) items.Add("Stop AI");
             items.Add("< Back");
             return items.ToArray();
@@ -596,6 +596,8 @@ namespace DVRouteManager.CommsRadio
                     string selected = items[Mathf.Clamp(_index, 0, items.Length - 1)];
                     if (selected == "Freight haul")
                         return BuildFreightHaulJobSelect();
+                    if (selected == "Drive active route")
+                        return new RouteManagerDriveActiveRouteStartState();
                     if (selected == "Drive to destination")
                     {
                         if (PlayerManager.LastLoco == null)
@@ -625,6 +627,108 @@ namespace DVRouteManager.CommsRadio
             if (booklets.Count == 1)
                 return new RouteManagerFreightHaulDestSelectState(booklets[0].job);
             return new RouteManagerFreightHaulJobSelectState(booklets);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  Loco AI - drive existing active route
+    // ─────────────────────────────────────────────────────────────
+    public class RouteManagerDriveActiveRouteStartState : AStateBehaviour
+    {
+        private bool _started;
+        private string _message = "AI could not start";
+
+        public RouteManagerDriveActiveRouteStartState()
+            : base(new CommsRadioState("LOCO AI", "Starting active route...", "WAIT"))
+        {
+            StartDriving();
+        }
+
+        private void StartDriving()
+        {
+            try
+            {
+                if (!Module.ActiveRoute.IsSet)
+                {
+                    _message = "No active route";
+                    return;
+                }
+
+                TrainCar loco = PlayerManager.LastLoco;
+                if (loco == null)
+                {
+                    _message = "Board a locomotive first";
+                    return;
+                }
+
+                if (Module.ActiveRoute.RouteTracker == null)
+                {
+                    _message = "No route tracker";
+                    return;
+                }
+
+                LocoAI ai = Module.GetLocoAI(loco);
+                _started = ai.StartAI(Module.ActiveRoute.RouteTracker);
+                _message = _started ? "AI started" : "Route not ready for AI";
+            }
+            catch (Exception e)
+            {
+                Module.mod.Logger.Log("Start active route AI error: " + e.Message);
+                _message = e.Message;
+            }
+        }
+
+        public override AStateBehaviour OnUpdate(CommsRadioUtility utility)
+        {
+            if (_started)
+                return new RouteManagerLocoAIRunningState();
+            return new RouteManagerMessageState(_message, new RouteManagerLocoAIMenuState());
+        }
+
+        public override AStateBehaviour OnAction(CommsRadioUtility utility, InputAction action)
+        {
+            if (action == InputAction.Down)
+            {
+                Module.TryGetLocoAI(PlayerManager.LastLoco)?.StopAll();
+                return new RouteManagerLocoAIMenuState();
+            }
+            return this;
+        }
+    }
+
+    public class RouteManagerLocoAIRunningState : AStateBehaviour
+    {
+        public RouteManagerLocoAIRunningState()
+            : base(BuildState())
+        { }
+
+        private static CommsRadioState BuildState()
+        {
+            string status = "Running...";
+            var tracker = Module.ActiveRoute?.RouteTracker;
+            if (tracker != null)
+                status = $"To go: {(tracker.DistanceToFinish / 1000.0):0.0}km";
+            return new CommsRadioState("LOCO AI", status, "STOP",
+                LCDArrowState.Off, LEDState.On, ButtonBehaviourType.Override);
+        }
+
+        public override AStateBehaviour OnUpdate(CommsRadioUtility utility)
+        {
+            TrainCar loco = PlayerManager.LastLoco;
+            LocoAI ai = Module.TryGetLocoAI(loco);
+            if (ai == null || !ai.IsRunning)
+                return new RouteManagerMessageState("AI route complete!", new RouteManagerLocoAIMenuState());
+            return new RouteManagerLocoAIRunningState();
+        }
+
+        public override AStateBehaviour OnAction(CommsRadioUtility utility, InputAction action)
+        {
+            if (action == InputAction.Activate)
+            {
+                Module.TryGetLocoAI(PlayerManager.LastLoco)?.StopAll();
+                return new RouteManagerMessageState("AI stopped", new RouteManagerLocoAIMenuState());
+            }
+            return this;
         }
     }
 
