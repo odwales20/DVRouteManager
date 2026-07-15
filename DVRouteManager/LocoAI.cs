@@ -796,7 +796,14 @@ namespace DVRouteManager
             }
 
             Track carTrack = freightTrainset.firstCar.Bogies[0].track.LogicTrack();
-            Track locoTrack = loco.trainset.firstCar.Bogies[0].track.LogicTrack();
+            Track locoTrack = Utils.GetRouteStartTrackForLoco(loco);
+            if (locoTrack == null)
+            {
+                Terminal.Log("Freight haul: loco route start track not found");
+                _freightHaulActive = false;
+                yield break;
+            }
+            Terminal.Log($"Freight haul: phase 1 start from loco ({Utils.DescribeLocoTrainsetPosition(loco)})");
 
             bool alreadyCoupled = loco.trainset == freightTrainset;
 
@@ -847,7 +854,14 @@ namespace DVRouteManager
             // ── Phase 3: drive to destination ────────────────────────────────
             Terminal.Log($"Freight haul: phase 3 – routing to {task.DestinationTrack.ID.FullID}");
 
-            Track nowTrack = loco.trainset.firstCar.Bogies[0].track.LogicTrack();
+            Track nowTrack = Utils.GetRouteStartTrackForLoco(loco);
+            if (nowTrack == null)
+            {
+                Terminal.Log("Freight haul: loco route start track not found after coupling");
+                _freightHaulActive = false;
+                yield break;
+            }
+            Terminal.Log($"Freight haul: phase 3 start from loco ({Utils.DescribeLocoTrainsetPosition(loco)})");
             var toDestTask = Route.FindRoute(nowTrack, task.DestinationTrack, FREIGHT_HAUL_REVERSING_STRATEGY, loco.trainset);
             while (!toDestTask.IsCompleted) yield return null;
 

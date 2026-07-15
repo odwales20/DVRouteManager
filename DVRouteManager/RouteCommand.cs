@@ -123,7 +123,17 @@ namespace DVRouteManager
                     throw new CommandException("No suitable task");
                 }
 
-                Track startTrack = trainCar.trainset.firstCar.Bogies[0].track.LogicTrack();
+                Track startTrack = args[0].String == "loco"
+                    ? Utils.GetRouteStartTrackForLoco(trainCar)
+                    : trainCar.trainset.firstCar.Bogies[0].track.LogicTrack();
+                if (startTrack == null)
+                {
+                    throw new CommandException("Route start track not found");
+                }
+                if (args[0].String == "loco")
+                {
+                    Terminal.Log($"job route start from loco: {Utils.DescribeLocoTrainsetPosition(trainCar)}");
+                }
 
                 await FindAndSwitch(startTrack, routeTracker.CurrentTask.DestinationTrack, ReversingStrategy.ChooseBest, trainCar.trainset);
 
@@ -146,7 +156,12 @@ namespace DVRouteManager
                     throw new CommandException("Tracker has no task");
                 }
 
-                Track startTrack = trainCar.trainset.firstCar.Bogies[0].track.LogicTrack();
+                Track startTrack = Utils.GetRouteStartTrackForLoco(trainCar);
+                if (startTrack == null)
+                {
+                    throw new CommandException("Loco route start track not found");
+                }
+                Terminal.Log($"tracker route start from loco: {Utils.DescribeLocoTrainsetPosition(trainCar)}");
 
                 await FindAndSwitch(startTrack, Module.ActiveRoute.RouteTracker.CurrentTask.DestinationTrack, ReversingStrategy.ChooseBest, trainCar.trainset);
 
@@ -165,17 +180,16 @@ namespace DVRouteManager
                         throw new CommandException("No last loco");
                     }
 
-                    if (trainCar.trainset.firstCar.logicCar.BogiesOnSameTrack)
+                    Track locoStartTrack = Utils.GetRouteStartTrackForLoco(trainCar);
+                    if (locoStartTrack == null)
                     {
-                        args[1].String = trainCar.trainset.firstCar.logicCar.CurrentTrack.ID.FullID;
-                    }
-                    else
-                    {
-                        args[1].String = trainCar.trainset.firstCar.logicCar.FrontBogieTrack.ID.FullID;
+                        throw new CommandException("Loco route start track not found");
                     }
 
+                    args[1].String = locoStartTrack.ID.FullID;
+
                     trainset = trainCar.trainset;
-                    Terminal.Log($"current loco track end");
+                    Terminal.Log($"route from loco: {Utils.DescribeLocoTrainsetPosition(trainCar)}");
                 }
                 else if (args[1].String == "job.trainset")
                 {
@@ -318,7 +332,12 @@ namespace DVRouteManager
                     throw new CommandException("Goal track not found");
                 }
 
-                Track startTrack = trainCar.trainset.firstCar.Bogies[0].track.LogicTrack();
+                Track startTrack = Utils.GetRouteStartTrackForLoco(trainCar);
+                if (startTrack == null)
+                {
+                    throw new CommandException("Loco route start track not found");
+                }
+                Terminal.Log($"auto route start from loco: {Utils.DescribeLocoTrainsetPosition(trainCar)}");
                 Track destTrack = goalTrack.LogicTrack();
 
                 var route = await Route.FindRoute(startTrack, destTrack, ReversingStrategy.ChooseBest, trainCar.trainset);

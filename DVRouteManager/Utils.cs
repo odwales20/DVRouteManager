@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using DV.Logic.Job;
 using UnityEngine;
 
 namespace DVRouteManager
@@ -55,6 +56,30 @@ namespace DVRouteManager
             }
 
             return (aBoogie, bBoogie);
+        }
+
+        public static Track GetRouteStartTrackForLoco(TrainCar loco)
+        {
+            if (loco == null)
+                return null;
+
+            Bogie bogie = loco.Bogies?.FirstOrDefault(b => b != null && !b.HasDerailed && b.track != null);
+            return bogie?.track?.LogicTrack();
+        }
+
+        public static string DescribeLocoTrainsetPosition(TrainCar loco)
+        {
+            if (loco?.trainset == null)
+                return "no trainset";
+
+            Trainset trainset = loco.trainset;
+            string position = trainset.firstCar == loco
+                ? "first"
+                : trainset.lastCar == loco
+                    ? "last"
+                    : "middle";
+
+            return $"cars={trainset.cars.Count}, loco={position}, first={trainset.firstCar?.logicCar?.ID}, last={trainset.lastCar?.logicCar?.ID}";
         }
 
 
