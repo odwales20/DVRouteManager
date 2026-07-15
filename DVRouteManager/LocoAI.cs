@@ -25,6 +25,8 @@ namespace DVRouteManager
         private const float DESTINATION_ROLL_IN_SPEED = 10.0f;
         private const float DESTINATION_CLEARANCE_SPEED = 10.0f;
         private const float DESTINATION_FINAL_STOP_SPEED = 1.0f;
+        private const float DESTINATION_STALL_SPEED = 0.5f;
+        private const float DESTINATION_STALL_RECOVERY_TIME = 2.0f;
         private const int DM3_REVERSE_BRAKE_MAX_LEVEL = 7; // 7/11 ~= SteamCruiseControl's 2/3 DM3 service brake
         private const float DM3_REVERSE_BRAKE_MAX_HOLD = 6.0f;
         private const ReversingStrategy FREIGHT_HAUL_REVERSING_STRATEGY = ReversingStrategy.OnlyIfNeeded;
@@ -566,6 +568,7 @@ namespace DVRouteManager
             float timeDelta = TIME_WAIT;
 
             bool couplerApproach = false;
+            float destinationStallTime = 0f;
 
             RouteTracker.TrackingState lastState = RouteTracker.TrackState;
 
@@ -672,6 +675,24 @@ namespace DVRouteManager
                     TargetSpeed = RouteTracker.IsTrainFullyInDestination ? 0f : DESTINATION_CLEARANCE_SPEED;
                 }
 
+                if (ShouldRecoverDestinationStall(speed))
+                {
+                    destinationStallTime += timeDelta;
+                    if (destinationStallTime >= DESTINATION_STALL_RECOVERY_TIME)
+                    {
+                        Terminal.Log("Destination roll-in stalled; releasing brakes");
+                        yield return ReleaseAllBrakes();
+                        targetAcceleration = 2.5f;
+                        destinationStallTime = 0f;
+                        prevTime = Time.time;
+                        continue;
+                    }
+                }
+                else
+                {
+                    destinationStallTime = 0f;
+                }
+
                 targetAcceleration = MaintainSpeed(targetAcceleration, timeDelta, speed, acceleration);
 
                 prevSpeed = speed;
@@ -736,6 +757,20 @@ namespace DVRouteManager
             float rollInSpeed = Mathf.Min(routeTargetSpeed, DESTINATION_ROLL_IN_SPEED);
 
             return Mathf.Max(rollInSpeed, Mathf.Min(routeTargetSpeed, brakeLimitedSpeed));
+        }
+
+        private bool ShouldRecoverDestinationStall(float speedKmh)
+        {
+            if (RouteTracker == null || TargetSpeed < DESTINATION_ROLL_IN_SPEED - 0.1f)
+                return false;
+
+            bool nearDestination = RouteTracker.TrackState == RouteTracker.TrackingState.OnFinish
+                || RouteTracker.DistanceToFinish <= DESTINATION_APPROACH_DISTANCE;
+            if (!nearDestination || speedKmh > DESTINATION_STALL_SPEED)
+                return false;
+
+            return remoteControl.GetTargetBrake() > 0.05f
+                || remoteControl.GetTargetIndependentBrake() > 0.05f;
         }
 
         private bool IsDM3()

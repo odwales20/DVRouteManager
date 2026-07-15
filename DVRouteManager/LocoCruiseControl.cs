@@ -49,6 +49,7 @@ namespace DVRouteManager
         private const float DE6_THROTTLE_FALL_RATE = 0.45f;
         private const float DE6_BRAKE_APPLY_RATE = 0.18f;
         private const float DE6_BRAKE_RELEASE_RATE = 0.10f;
+        private const float DE6_BRAKE_UNDER_TARGET_RELEASE_RATE = 0.55f;
         private const float DE6_BRAKE_RELEASE_BAND = 1.0f;
         private const float DE2_MAX_AMPS = 750f;
         private const float DE6_MAX_AMPS = 1450f;
@@ -365,7 +366,8 @@ namespace DVRouteManager
                 if (IsDE6Like())
                 {
                     float maxApply = DE6_BRAKE_APPLY_RATE * dt;
-                    float maxRelease = DE6_BRAKE_RELEASE_RATE * dt;
+                    float releaseRate = speedError > 1f ? DE6_BRAKE_UNDER_TARGET_RELEASE_RATE : DE6_BRAKE_RELEASE_RATE;
+                    float maxRelease = releaseRate * dt;
                     brakeTarget = Mathf.Clamp(brakeTarget, activeBrake - maxRelease, activeBrake + maxApply);
                 }
             }

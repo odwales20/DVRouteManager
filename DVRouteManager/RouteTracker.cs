@@ -13,6 +13,8 @@ namespace DVRouteManager
 {
     public class RouteTracker : IDisposable
     {
+        private const double TRAIN_END_CLEARANCE_BUFFER = 8.0;
+
         public enum TrackingState
         {
             BeforeStart,
@@ -58,6 +60,7 @@ namespace DVRouteManager
         }
 
         public double DistanceTraveled { get; set; } = 0.0;
+        public double TrainTailDistanceTraveled { get; private set; } = double.NegativeInfinity;
 
         public double DistanceToFinish
         {
@@ -74,7 +77,12 @@ namespace DVRouteManager
                 if (Route == null || Trainset == null || Route.LastTrack == null)
                     return double.NegativeInfinity;
 
-                return DistanceTraveled - Trainset.Length() - (Route.Length - Route.LastTrack.LogicTrack().length);
+                double tailDistance = double.IsNegativeInfinity(TrainTailDistanceTraveled)
+                    ? DistanceTraveled - Trainset.Length()
+                    : TrainTailDistanceTraveled;
+                double destinationStart = Route.Length - Route.LastTrack.LogicTrack().length;
+
+                return tailDistance - destinationStart - TRAIN_END_CLEARANCE_BUFFER;
             }
         }
 
@@ -342,15 +350,22 @@ namespace DVRouteManager
             Route.WalkPathData pathData = firstPathData;
             CarTrackPosition car = firstCar;
 
-            double posFromStart = firstPathData != null ? firstPathData.distanceFromStart + firstCar.PosOnTrack : 0.0;
+            double? firstPosFromStart = firstPathData != null
+                ? (double?)(firstPathData.distanceFromStart + firstCar.PosOnTrack)
+                : null;
+            double? lastPosFromStart = lastPathData != null
+                ? (double?)(lastPathData.distanceFromStart + lastCar.PosOnTrack)
+                : null;
 
-            if (lastPathData != null)
+            double posFromStart = firstPosFromStart ?? 0.0;
+
+            if (lastPosFromStart.HasValue)
             {
-                if (pathData == null || posFromStart < (lastPathData.distanceFromStart + lastCar.PosOnTrack))
+                if (pathData == null || posFromStart < lastPosFromStart.Value)
                 {
                     pathData = lastPathData;
                     car = lastCar;
-                    posFromStart = lastPathData.distanceFromStart + lastCar.PosOnTrack;
+                    posFromStart = lastPosFromStart.Value;
                 }
             }
 
@@ -368,6 +383,11 @@ namespace DVRouteManager
             if(isOnTrack)
             {
                 DistanceTraveled = posFromStart;
+
+                if (firstPosFromStart.HasValue && lastPosFromStart.HasValue)
+                    TrainTailDistanceTraveled = Math.Min(firstPosFromStart.Value, lastPosFromStart.Value);
+                else
+                    TrainTailDistanceTraveled = DistanceTraveled - Trainset.Length();
 
                 if( (posFromStart - Trainset.Length()) > notifyTrainEndPosition)
                 {

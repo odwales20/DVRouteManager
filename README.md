@@ -13,7 +13,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
 
-Current debug build marker: **b037**.
+Current debug build marker: **b038**.
 
 ### AI Speed Limit System (WIP)
 
@@ -34,6 +34,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - DriverAssist-style controller protections: throttle backs off for projected overheating, excessive amps, wheel slip, and high acceleration; braking now uses a 10-second projected overspeed check
 - DE6 throttle smoothing: amp protection now has hysteresis and DE6 throttle changes are slew-limited to reduce accelerator pulsing under AI control
 - DE6 brake smoothing: predictive braking now holds its overspeed state briefly and ramps brake apply/release to reduce brake pulsing under AI control
+- Destination roll-in recovery: if the AI is near the destination, has a roll-in target, but is stopped against applied brakes, it releases brakes automatically instead of needing AI re-engage
 - DM3-specific DriverAssist behaviour: DM3 consists use manual-lap style train braking, and low-torque hill-climb throttle support is included alongside the existing DM3 gear shifting
 - Yard reverse safety: before changing direction, the AI checks the coupler on the side that would become the leading end; if another coupler is within 12 m it keeps the current direction and continues at normal AI target speed instead of reversing into the cars
 - Load hardening: missing debug audio files no longer throw startup exceptions, and the update check now has a short timeout
@@ -47,7 +48,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - DM3 reverse braking: route-reversal brake pulses are capped to about 7/11 train brake with a shorter hold, matching the controlled DM3 braking style instead of applying the generic heavy pulse
 - DM3 speed cap: AI target speed is capped to 65 km/h on DM3, matching SteamCruiseControl's default
 - Destination approach braking: the AI now starts reducing target speed inside 350 m of the destination but keeps a 10 km/h roll-in target before the finish trigger, then waits for a near-stop before final cleanup
-- Destination siding clearance: after the route hits finish, the AI keeps rolling at 10 km/h until the whole consist has entered the destination track before it performs the final stop
+- Destination siding clearance: after the route hits finish, the AI keeps rolling at 10 km/h until the tracked rear end of the train, plus an 8 m buffer, has entered the destination track before it performs the final stop
 
 ### Known Remaining Issues
 
@@ -61,7 +62,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Next Test TODO
 
-- Reload into **b037** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b038** and confirm the Comms Radio build marker updates after UMM reload
 - Test Loco AI -> Drive active route: create a normal route first, start it from the AI menu, and confirm it drives the existing route rather than computing a new destination
 - Test Loco AI -> Flip active route: with a route that would push cars, flip it, then Drive active route and confirm it pulls from the other end
 - Test freight haul after coupling and check the terminal log line `Freight haul: phase 3 start from loco (...)`; it should show the attached car count and whether the loco is `first` or `last` before routing to destination
@@ -72,7 +73,8 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Test DM3 reversal braking: force a wrong-heading/reverse state and confirm the log shows `DM3 reverse brake pulse` and the train does not get an excessive full-brake slam
 - Test DM3 speed cap: on a route with a higher speed limit, confirm the DM3 AI target stays capped at 65 km/h
 - Test destination approach braking with light engine and freight: confirm it eases down before the final track centre but does not stop short of the destination trigger
-- Test destination siding clearance with a long freight consist: confirm it rolls past the destination trigger at about 10 km/h until the rear of the train is inside the siding before stopping
+- Test destination siding clearance with a long freight consist: confirm it rolls past the destination trigger at about 10 km/h until the physical rear end of the train is inside the siding before stopping
+- Test destination anti-stall recovery: if it stops short near the destination with brakes applied, confirm it releases brakes and resumes without manually re-engaging AI
 - Test DE6 AI driving: confirm throttle and brake no longer audibly/visibly pulse while accelerating, holding speed, or correcting mild overspeed, and that amp/overspeed limiting still backs off under heavy load
 - Test yard reverse safety: put cars close behind the loco/trainset, trigger an AI reversal, and confirm it keeps the other direction at normal AI target speed instead of reversing through them
 - Repeat the yard reverse test with no cars behind it and confirm normal reversing still works
@@ -82,12 +84,13 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b037`
+- Current debug build marker: `b038`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b037` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, DE6 throttle/brake smoothing, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, AI-menu route flip, loco-end route starts, steam AI direction fix, SteamCruiseControl-informed steam drive, capped DM3 reverse braking, 65 km/h DM3 speed cap, destination roll-in braking, and destination siding clearance are active
+- Next test should start by reloading into `b038` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, DE6 throttle/brake smoothing, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, AI-menu route flip, loco-end route starts, steam AI direction fix, SteamCruiseControl-informed steam drive, capped DM3 reverse braking, 65 km/h DM3 speed cap, destination roll-in braking, destination anti-stall recovery, and rear-end based destination siding clearance are active
 - Recent important commits:
+  - b038 - recover destination roll-in stalls and track train rear end
   - b037 - keep AI rolling into destination before final stop
   - b036 - smooth DE6 AI brake limiting
   - b035 - smooth DE6 AI throttle protection
@@ -140,10 +143,11 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - **DriverAssist-style safety layer** — reduces throttle for heat, amps, wheel slip, and high acceleration; applies predictive braking before overspeed grows
 - **DE6 throttle smoothing** — AI throttle changes are rate-limited and amp protection uses hysteresis to avoid rapid accelerator pulsing
 - **DE6 brake smoothing** — predictive braking uses hysteresis and rate-limited apply/release to avoid rapid brake pulsing
+- **Destination anti-stall recovery** — near the destination, the AI releases stuck brakes automatically when it should be rolling but has stopped
 - **DM3 reverse brake pulse cap** — wrong-heading/reversal stops avoid the generic heavy brake pulse on DM3 consists
 - **DM3 speed cap** — DM3 AI target speed is capped to 65 km/h
 - **Destination approach braking** — target speed tapers down before the final destination without stopping short of the finish trigger
-- **Destination siding clearance** — after finish, the AI keeps rolling until the whole train has entered the destination track
+- **Destination siding clearance** — after finish, the AI keeps rolling until the tracked rear end of the train has entered the destination track
 - **Turntable awareness** — stops and waits for turntable to finish rotating
 - **Competing mod safety** — disables DriverAssist and SteamCruiseControl on start
 
