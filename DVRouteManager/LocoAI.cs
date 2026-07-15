@@ -498,8 +498,13 @@ namespace DVRouteManager
 
         public bool StartAI(RouteTracker routeTracker)
         {
-            if (routeTracker == null || routeTracker.Route == null)
+            if (!IsRouteUsableForAI(routeTracker))
+            {
+                Terminal.Log("AI start refused: no usable active route");
+                TargetSpeed = 0f;
+                Stop();
                 return false;
+            }
 
             if(RouteTracker != null)
             {
@@ -558,6 +563,14 @@ namespace DVRouteManager
             Terminal.Log("Autonomous driver start");
             yield return null;
 
+            if (!IsRouteUsableForAI(RouteTracker))
+            {
+                Terminal.Log("Autonomous driver stopped: no usable active route");
+                TargetSpeed = 0f;
+                running = false;
+                yield break;
+            }
+
             bool shouldreverse = false;
 
             remoteControl.UpdateReverser(ToggleDirection.UP);
@@ -580,6 +593,13 @@ namespace DVRouteManager
 
             while (running)
             {
+                if (!IsRouteUsableForAI(RouteTracker))
+                {
+                    Terminal.Log("Autonomous driver stopped: active route lost");
+                    TargetSpeed = 0f;
+                    break;
+                }
+
                 float speed = Mathf.Abs(remoteControl.GetForwardSpeed() * 3.6f);
                 float acceleration = (speed - prevSpeed) / timeDelta;
 
@@ -765,6 +785,17 @@ namespace DVRouteManager
             float rollInSpeed = Mathf.Min(routeTargetSpeed, DESTINATION_ROLL_IN_SPEED);
 
             return Mathf.Max(rollInSpeed, Mathf.Min(routeTargetSpeed, brakeLimitedSpeed));
+        }
+
+        private bool IsRouteUsableForAI(RouteTracker routeTracker)
+        {
+            if (routeTracker == null || routeTracker.Route == null || routeTracker.Route.Path == null || routeTracker.Route.Path.Count == 0)
+                return false;
+            if (routeTracker.CurrentTask == null || routeTracker.Trainset == null)
+                return false;
+            if (Module.ActiveRoute == null || !Module.ActiveRoute.IsSet || Module.ActiveRoute.Route != routeTracker.Route)
+                return false;
+            return true;
         }
 
         private bool ShouldRecoverDestinationStall(float speedKmh)

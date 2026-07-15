@@ -1016,6 +1016,19 @@ namespace DVRouteManager
         public void Stop()
         {
             running = false;
+            TargetSpeed = 0f;
+            var simOverrider = trainCar?.SimController?.controlsOverrider;
+            simOverrider?.Throttle?.Set(0f);
+
+            if (_isSteam && _steamOverrider != null)
+            {
+                _steamRegulator = 0f;
+                _steamPulseBraking = false;
+                _steamRecoveringToTarget = false;
+                _steamOverrider.Throttle?.Set(0f);
+                _steamOverrider.Brake?.Set(1f);
+                _steamOverrider.Reverser?.Set(0.5f);
+            }
         }
 
         protected IEnumerator CruiseControlCoroutine()
