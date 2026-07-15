@@ -2,6 +2,7 @@ using CommandTerminal;
 using CommsRadioAPI;
 using DV;
 using DV.Logic.Job;
+using DV.ThingTypes;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -40,6 +41,7 @@ namespace DVRouteManager.CommsRadio
         {
             "New route",
             "Active route",
+            "Route to refuel",
             "Loco AI",
             "Settings",
             "< Back"
@@ -79,9 +81,10 @@ namespace DVRouteManager.CommsRadio
                             if (Module.ActiveRoute.IsSet)
                                 return new RouteManagerRouteInfoState();
                             return new RouteManagerMessageState("No active route", new RouteManagerMainMenuState());
-                        case 2: return new RouteManagerLocoAIMenuState();
-                        case 3: return new RouteManagerSettingsState();
-                        case 4: return new RouteManagerInitialState();
+                        case 2: return new RouteManagerRefuelMenuState();
+                        case 3: return new RouteManagerLocoAIMenuState();
+                        case 4: return new RouteManagerSettingsState();
+                        case 5: return new RouteManagerInitialState();
                         default: return new RouteManagerInitialState();
                     }
                 default:
@@ -985,6 +988,112 @@ namespace DVRouteManager.CommsRadio
                 default:
                     return this;
             }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  Refuel menu — pick resource type, route to nearest station
+    // ─────────────────────────────────────────────────────────────
+    public class RouteManagerRefuelMenuState : AStateBehaviour
+    {
+        private readonly string[] _items;
+        private readonly int _index;
+
+        public RouteManagerRefuelMenuState(int index = 0)
+            : base(BuildState(GetItems(), index))
+        {
+            _items = GetItems();
+            _index = Mathf.Clamp(index, 0, _items.Length - 1);
+        }
+
+        private static string[] GetItems()
+        {
+            TrainCar loco = PlayerManager.LastLoco;
+            if (loco == null) return new[] { "No loco", "< Back" };
+            string id = loco.carLivery?.parentType?.id ?? "";
+            bool isSteam = id.Contains("S060") || id.Contains("S282");
+            return isSteam
+                ? new[] { "Water", "Coal", "< Back" }
+                : new[] { "Diesel fuel", "< Back" };
+        }
+
+        private static CommsRadioState BuildState(string[] items, int index)
+        {
+            int i = Mathf.Clamp(index, 0, items.Length - 1);
+            return new CommsRadioState("REFUEL", items[i], "ROUTE",
+                LCDArrowState.Right, LEDState.Off, ButtonBehaviourType.Override);
+        }
+
+        public override AStateBehaviour OnAction(CommsRadioUtility utility, InputAction action)
+        {
+            switch (action)
+            {
+                case InputAction.Up:
+                    return new RouteManagerRefuelMenuState((_index + 1) % _items.Length);
+                case InputAction.Down:
+                    return new RouteManagerRefuelMenuState((_index - 1 + _items.Length) % _items.Length);
+                case InputAction.Activate:
+                    string selected = _items[_index];
+                    if (selected == "< Back" || selected == "No loco")
+                        return new RouteManagerMainMenuState();
+                    ResourceType resourceType;
+                    switch (selected)
+                    {
+                        case "Water": resourceType = ResourceType.Water; break;
+                        case "Coal": resourceType = ResourceType.Coal; break;
+                        default: resourceType = ResourceType.Fuel; break;
+                    }
+                    return RouteToRefuel(resourceType);
+                default:
+                    return this;
+            }
+        }
+
+        private static AStateBehaviour RouteToRefuel(ResourceType resourceType)
+        {
+            TrainCar loco = PlayerManager.LastLoco;
+            if (loco == null)
+                return new RouteManagerMessageState("No locomotive", new RouteManagerMainMenuState());
+
+            Vector3 locoPos = loco.transform.position;
+            var pits = UnityEngine.Object.FindObjectsOfType<PitStopStation>();
+            var candidates = new List<(float score, RailTrack track)>();
+
+            foreach (var pit in pits)
+            {
+                if (pit == null) continue;
+                var modules = pit.locoResourceModules;
+                if (modules?.resourceModules == null) continue;
+                if (!modules.resourceModules.Any(m => m != null && m.resourceType == resourceType)) continue;
+
+                Vector3 pitPos = pit.transform.position;
+                RailTrack nearest = RailTrackRegistryBase.RailTracks
+                    .Where(rt => rt != null && rt.LogicTrack() != null)
+                    .OrderBy(rt => (rt.transform.position - pitPos).sqrMagnitude)
+                    .FirstOrDefault();
+                if (nearest == null) continue;
+
+                float score = Vector3.Distance(locoPos, pitPos);
+                if (resourceType == ResourceType.Water &&
+                    !(nearest.inIsConnected && nearest.outIsConnected))
+                    score += 2000f;
+
+                candidates.Add((score, nearest));
+            }
+
+            if (candidates.Count == 0)
+                return new RouteManagerMessageState($"No {resourceType} station found", new RouteManagerMainMenuState());
+
+            string trackId = candidates.OrderBy(c => c.score).First().track.LogicTrack().ID.FullID;
+            Terminal.Log($"Routing to {resourceType} at {trackId}");
+
+            return new RouteManagerComputingState(new[]
+            {
+                new CommandArg { String = "from" },
+                new CommandArg { String = "loco" },
+                new CommandArg { String = "to" },
+                new CommandArg { String = trackId }
+            }, new RouteManagerMainMenuState());
         }
     }
 
