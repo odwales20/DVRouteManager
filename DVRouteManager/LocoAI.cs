@@ -22,9 +22,8 @@ namespace DVRouteManager
         private const float DESTINATION_APPROACH_DISTANCE = 350.0f;
         private const float DESTINATION_STOP_BUFFER = 12.0f;
         private const float DESTINATION_APPROACH_DECEL_MS2 = 0.32f;
-        private const float DESTINATION_CRAWL_DISTANCE = 45.0f;
-        private const float DESTINATION_CRAWL_SPEED = 5.0f;
-        private const float DESTINATION_CLEARANCE_CRAWL_SPEED = 3.0f;
+        private const float DESTINATION_ROLL_IN_SPEED = 10.0f;
+        private const float DESTINATION_CLEARANCE_SPEED = 10.0f;
         private const float DESTINATION_FINAL_STOP_SPEED = 1.0f;
         private const int DM3_REVERSE_BRAKE_MAX_LEVEL = 7; // 7/11 ~= SteamCruiseControl's 2/3 DM3 service brake
         private const float DM3_REVERSE_BRAKE_MAX_HOLD = 6.0f;
@@ -670,7 +669,7 @@ namespace DVRouteManager
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.OnFinish)
                 {
-                    TargetSpeed = RouteTracker.IsTrainFullyInDestination ? 0f : DESTINATION_CLEARANCE_CRAWL_SPEED;
+                    TargetSpeed = RouteTracker.IsTrainFullyInDestination ? 0f : DESTINATION_CLEARANCE_SPEED;
                 }
 
                 targetAcceleration = MaintainSpeed(targetAcceleration, timeDelta, speed, acceleration);
@@ -734,11 +733,9 @@ namespace DVRouteManager
 
             float brakingDistance = Mathf.Max(0f, distance - DESTINATION_STOP_BUFFER);
             float brakeLimitedSpeed = Mathf.Sqrt(2f * DESTINATION_APPROACH_DECEL_MS2 * brakingDistance) * 3.6f;
+            float rollInSpeed = Mathf.Min(routeTargetSpeed, DESTINATION_ROLL_IN_SPEED);
 
-            if (distance < DESTINATION_CRAWL_DISTANCE)
-                brakeLimitedSpeed = Mathf.Min(brakeLimitedSpeed, DESTINATION_CRAWL_SPEED);
-
-            return Mathf.Max(0f, Mathf.Min(routeTargetSpeed, brakeLimitedSpeed));
+            return Mathf.Max(rollInSpeed, Mathf.Min(routeTargetSpeed, brakeLimitedSpeed));
         }
 
         private bool IsDM3()
