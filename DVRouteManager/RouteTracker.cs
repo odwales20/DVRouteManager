@@ -67,6 +67,25 @@ namespace DVRouteManager
             }
         }
 
+        public double TrainTailDistancePastDestinationStart
+        {
+            get
+            {
+                if (Route == null || Trainset == null || Route.LastTrack == null)
+                    return double.NegativeInfinity;
+
+                return DistanceTraveled - Trainset.Length() - (Route.Length - Route.LastTrack.LogicTrack().length);
+            }
+        }
+
+        public bool IsTrainFullyInDestination
+        {
+            get
+            {
+                return TrainTailDistancePastDestinationStart >= 0.0;
+            }
+        }
+
         public void SetRoute(Route route, Trainset trainset)
         {
             Trainset = trainset;

@@ -24,6 +24,7 @@ namespace DVRouteManager
         private const float DESTINATION_APPROACH_DECEL_MS2 = 0.32f;
         private const float DESTINATION_CRAWL_DISTANCE = 45.0f;
         private const float DESTINATION_CRAWL_SPEED = 5.0f;
+        private const float DESTINATION_CLEARANCE_CRAWL_SPEED = 3.0f;
         private const float DESTINATION_FINAL_STOP_SPEED = 1.0f;
         private const int DM3_REVERSE_BRAKE_MAX_LEVEL = 7; // 7/11 ~= SteamCruiseControl's 2/3 DM3 service brake
         private const float DM3_REVERSE_BRAKE_MAX_HOLD = 6.0f;
@@ -669,7 +670,7 @@ namespace DVRouteManager
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.OnFinish)
                 {
-                    TargetSpeed = 0f;
+                    TargetSpeed = RouteTracker.IsTrainFullyInDestination ? 0f : DESTINATION_CLEARANCE_CRAWL_SPEED;
                 }
 
                 targetAcceleration = MaintainSpeed(targetAcceleration, timeDelta, speed, acceleration);
@@ -688,8 +689,16 @@ namespace DVRouteManager
                 {
                     if (RouteTracker.Route.LastTrack.LogicTrack().IsFree(RouteTracker.Trainset))
                     {
-                        if (speed < DESTINATION_FINAL_STOP_SPEED)
+                        if (!RouteTracker.IsTrainFullyInDestination)
+                        {
+#if DEBUG
+                            Terminal.Log($"waiting for train tail to enter destination: {RouteTracker.TrainTailDistancePastDestinationStart:0.0}m");
+#endif
+                        }
+                        else if (speed < DESTINATION_FINAL_STOP_SPEED)
+                        {
                             break;
+                        }
                     }
                     else
                     {
