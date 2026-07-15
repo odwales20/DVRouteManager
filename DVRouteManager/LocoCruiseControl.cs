@@ -47,6 +47,9 @@ namespace DVRouteManager
         private const float PROTECTION_AMP_RELEASE_FACTOR = 0.92f;
         private const float DE6_THROTTLE_RISE_RATE = 0.25f;
         private const float DE6_THROTTLE_FALL_RATE = 0.45f;
+        private const float DE6_BRAKE_APPLY_RATE = 0.18f;
+        private const float DE6_BRAKE_RELEASE_RATE = 0.10f;
+        private const float DE6_BRAKE_RELEASE_BAND = 1.0f;
         private const float DE2_MAX_AMPS = 750f;
         private const float DE6_MAX_AMPS = 1450f;
         private const float DM3_MIN_TORQUE = 35000f;
@@ -108,6 +111,7 @@ namespace DVRouteManager
         private float _lastProtectionTempTime = -1f;
         private float _protectionTempRate = 0f;
         private bool _ampProtectionActive = false;
+        private bool _de6BrakeProtectionActive = false;
 
         // ────────────────────────────────────────────────────────────────────
 
@@ -234,7 +238,7 @@ namespace DVRouteManager
 
             // ── Brake: proportional to overspeed ─────────────────────────────
             if (simOverrider?.Brake != null)
-                ApplyPredictiveBrake(simOverrider, speed, acceleration, error);
+                ApplyPredictiveBrake(simOverrider, speed, acceleration, error, dt);
             else if (error < -3.0f || TargetSpeed < Mathf.Epsilon)
                 remoteControl.UpdateBrake(0.3f * error * -1.0f * dt);
             else if (remoteControl.GetTargetBrake() > Mathf.Epsilon)
@@ -317,7 +321,7 @@ namespace DVRouteManager
             return torque < DM3_MIN_TORQUE && accelerationMs2 < 0.05f && speedKmh < TargetSpeed - 1f;
         }
 
-        private void ApplyPredictiveBrake(BaseControlsOverrider simOverrider, float speedKmh, float accelerationKmhS, float speedError)
+        private void ApplyPredictiveBrake(BaseControlsOverrider simOverrider, float speedKmh, float accelerationKmhS, float speedError, float dt)
         {
             bool lightEngine = trainCar?.trainset?.cars != null && trainCar.trainset.cars.Count == 1;
             float trainBrake = simOverrider.Brake?.Value ?? 0f;
@@ -340,12 +344,30 @@ namespace DVRouteManager
                 bool projectedOverspeed = speedKmh > TargetSpeed - 1f && projectedSpeed > TargetSpeed + PROTECTION_BRAKE_SPEED_BAND;
                 bool actualOverspeed = speedError < -3f;
 
+                if (IsDE6Like())
+                {
+                    if (_de6BrakeProtectionActive)
+                        _de6BrakeProtectionActive = speedError < -DE6_BRAKE_RELEASE_BAND || projectedSpeed > TargetSpeed + DE6_BRAKE_RELEASE_BAND;
+                    else
+                        _de6BrakeProtectionActive = projectedOverspeed || actualOverspeed;
+
+                    projectedOverspeed = _de6BrakeProtectionActive && projectedSpeed > TargetSpeed + DE6_BRAKE_RELEASE_BAND;
+                    actualOverspeed = _de6BrakeProtectionActive && speedError < -DE6_BRAKE_RELEASE_BAND;
+                }
+
                 if (projectedOverspeed)
                     brakeTarget = Mathf.Clamp01(activeBrake + THROTTLE_NOTCH);
                 else if (actualOverspeed)
                     brakeTarget = Mathf.Clamp01(Mathf.Max(PROTECTION_MIN_BRAKE, (-speedError - 3f) / 20f));
                 else
                     brakeTarget = Mathf.Max(0f, activeBrake - PROTECTION_BRAKE_RELEASE_FACTOR * activeBrake);
+
+                if (IsDE6Like())
+                {
+                    float maxApply = DE6_BRAKE_APPLY_RATE * dt;
+                    float maxRelease = DE6_BRAKE_RELEASE_RATE * dt;
+                    brakeTarget = Mathf.Clamp(brakeTarget, activeBrake - maxRelease, activeBrake + maxApply);
+                }
             }
 
             if (lightEngine)
