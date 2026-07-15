@@ -24,7 +24,7 @@ namespace DVRouteManager
 #endif
     static class Module
     {
-        public const string BUILD = "b022";
+        public const string BUILD = "b023";
         private const string AUDIO_DIRECTORY = "audio\\";
         public static UnityModManager.ModEntry mod;
         public static Settings settings;
@@ -198,6 +198,7 @@ namespace DVRouteManager
             try
             {
                 www = UnityWebRequest.Get(mod.Info.Repository);
+                www.timeout = 5;
                 www.downloadHandler = new DownloadHandlerBuffer();
             }
             catch (Exception e)
@@ -229,6 +230,10 @@ namespace DVRouteManager
                         Terminal.Log($"{version} {VersionForUpdate.downloadUrl}");
                     }
 
+                }
+                else
+                {
+                    mod.Logger.Log($"Update check skipped: {www.error}");
                 }
             }
 

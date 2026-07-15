@@ -17,6 +17,14 @@ namespace DVRouteManager
             try
             {
                 string path = Path.Combine(Path.GetDirectoryName(Module.ModulePath), fileName);
+                if (!File.Exists(path))
+                {
+#if DEBUG
+                    Terminal.Log("Audio clip missing " + clipName);
+#endif
+                    Module.mod.Logger.Log("Audio clip missing " + path);
+                    return null;
+                }
 
                 WAV wav = new WAV(path);
 

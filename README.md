@@ -13,7 +13,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
 
-Current debug build marker: **b022**.
+Current debug build marker: **b023**.
 
 ### AI Speed Limit System (WIP)
 
@@ -34,6 +34,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - DriverAssist-style controller protections: throttle backs off for projected overheating, excessive amps, wheel slip, and high acceleration; braking now uses a 10-second projected overspeed check
 - DM3-specific DriverAssist behaviour: DM3 consists use manual-lap style train braking, and low-torque hill-climb throttle support is included alongside the existing DM3 gear shifting
 - Yard reverse safety: before changing direction, the AI checks the coupler on the side that would become the leading end; if another coupler is within 12 m it keeps the current direction and continues at normal AI target speed instead of reversing into the cars
+- Load hardening: missing debug audio files no longer throw startup exceptions, and the update check now has a short timeout
 
 ### Known Remaining Issues
 
@@ -41,11 +42,12 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - The AI now follows sign-derived limits with a fixed 5 km/h margin and DriverAssist-style controller protections, but braking and overspeed behaviour still needs testing across heavier consists, gradients, and poor adhesion
 - Freight haul AI is not production-ready yet; speed-limit tuning is still in progress and heavy trains may still derail
 - Yard reverse safety was added in b021/b022 but has not been live-tested yet
+- If loading still sometimes sticks at 93%, check `UnityModManager/Log.txt`; b023 removes Route Manager's known missing-audio startup exceptions and limits its update check wait
 - Comms Radio reload is supported for testing, but a full game restart is still the safest way to confirm a clean mod load after larger code changes
 
 ### Next Test TODO
 
-- Reload into **b022** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b023** and confirm the Comms Radio build marker updates after UMM reload
 - Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin and DriverAssist-style protections enabled; watch for flange squeal, overspeed, high acceleration, wheel slip, and braking before tighter curves
 - Test DM3 specifically: confirm gear shifting still works, loaded consists use controlled train braking, and hill climbs do not stall from over-aggressive throttle limiting
 - Test yard reverse safety: put cars close behind the loco/trainset, trigger an AI reversal, and confirm it keeps the other direction at normal AI target speed instead of reversing through them
@@ -55,12 +57,13 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b022`
+- Current debug build marker: `b023`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b022` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, and yard reverse safety are active
+- Next test should start by reloading into `b023` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, yard reverse safety, and load hardening are active
 - Recent important commits:
+  - b023 - harden startup audio/update checks
   - b022 - continue normally when reversal is blocked
   - b021 - block reversals into nearby cars
   - b020 - include DM3 DriverAssist-style protections
