@@ -44,6 +44,9 @@ namespace DVRouteManager
         private const float PROTECTION_BRAKE_RELEASE_FACTOR = 0.5f;
         private const float PROTECTION_MIN_BRAKE = 0.1f;
         private const float PROTECTION_BRAKE_SPEED_BAND = 2.5f;
+        private const float PROTECTION_AMP_RELEASE_FACTOR = 0.92f;
+        private const float DE6_THROTTLE_RISE_RATE = 0.25f;
+        private const float DE6_THROTTLE_FALL_RATE = 0.45f;
         private const float DE2_MAX_AMPS = 750f;
         private const float DE6_MAX_AMPS = 1450f;
         private const float DM3_MIN_TORQUE = 35000f;
@@ -104,6 +107,7 @@ namespace DVRouteManager
         private float _lastProtectionTemp = -1f;
         private float _lastProtectionTempTime = -1f;
         private float _protectionTempRate = 0f;
+        private bool _ampProtectionActive = false;
 
         // ────────────────────────────────────────────────────────────────────
 
@@ -220,7 +224,7 @@ namespace DVRouteManager
                 // Cap throttle at low speed to prevent traction motor overload (DE4 etc.)
                 if (speed < 5f)  newThrottle = Mathf.Min(newThrottle, 0.25f);
                 else if (speed < 15f) newThrottle = Mathf.Min(newThrottle, 0.55f);
-                newThrottle = ApplyThrottleProtection(newThrottle, simOverrider.Throttle.Value, speed, acceleration);
+                newThrottle = ApplyThrottleProtection(newThrottle, simOverrider.Throttle.Value, speed, acceleration, dt);
                 simOverrider.Throttle.Set(newThrottle);
             }
             else
@@ -239,7 +243,7 @@ namespace DVRouteManager
             return targetAcceleration;
         }
 
-        private float ApplyThrottleProtection(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationKmhS)
+        private float ApplyThrottleProtection(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationKmhS, float dt)
         {
             float cappedThrottle = requestedThrottle;
             float temp = GetLocoTemperature();
@@ -259,8 +263,16 @@ namespace DVRouteManager
                 reduceThrottle = true;
             }
 
-            if (maxAmps > 0f && amps >= maxAmps)
-                reduceThrottle = true;
+            if (maxAmps > 0f)
+            {
+                if (_ampProtectionActive)
+                    _ampProtectionActive = amps > maxAmps * PROTECTION_AMP_RELEASE_FACTOR;
+                else
+                    _ampProtectionActive = amps >= maxAmps;
+
+                if (_ampProtectionActive)
+                    reduceThrottle = true;
+            }
 
             if (remoteControl.IsWheelslipping())
                 reduceThrottle = true;
@@ -273,7 +285,20 @@ namespace DVRouteManager
             else if (_isDM3 && ShouldAddDm3HillClimbThrottle(cappedThrottle, currentThrottle, speedKmh, accelerationMs2, projectedTemp))
                 cappedThrottle = Mathf.Max(cappedThrottle, Mathf.Min(1f, currentThrottle + THROTTLE_NOTCH));
 
+            if (IsDE6Like())
+            {
+                float maxRise = DE6_THROTTLE_RISE_RATE * dt;
+                float maxFall = DE6_THROTTLE_FALL_RATE * dt;
+                cappedThrottle = Mathf.Clamp(cappedThrottle, currentThrottle - maxFall, currentThrottle + maxRise);
+            }
+
             return Mathf.Clamp01(cappedThrottle);
+        }
+
+        private bool IsDE6Like()
+        {
+            string id = _locoId ?? "";
+            return id.Contains("DE6");
         }
 
         private bool ShouldAddDm3HillClimbThrottle(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationMs2, float projectedTemp)
