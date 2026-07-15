@@ -511,7 +511,7 @@ namespace DVRouteManager.CommsRadio
             }
 
             if (_stopAI)
-                Module.TryGetLocoAI(PlayerManager.LastLoco)?.StopAll();
+                Module.TryGetLocoAI(PlayerManager.LastLoco)?.StopAll(applyFinalBrake: false);
 
             System.Threading.Tasks.Task<Route> task = null;
             try { task = Module.ActiveRoute.Route.FindOppositeRoute(); }
@@ -677,14 +677,21 @@ namespace DVRouteManager.CommsRadio
                     return;
                 }
 
-                if (Module.ActiveRoute.RouteTracker == null)
+                Route route = Module.ActiveRoute.Route;
+                if (route == null)
                 {
-                    _message = "No route tracker";
+                    _message = "No active route";
                     return;
                 }
 
+                Trainset trainset = loco.trainset;
+                var chain = RouteTaskChain.FromDestination(route.LastTrack.LogicTrack(), trainset);
+                var tracker = new RouteTracker(chain, true);
+                tracker.SetRoute(route, trainset);
+                Module.ActiveRoute.RouteTracker = tracker;
+
                 LocoAI ai = Module.GetLocoAI(loco);
-                _started = ai.StartAI(Module.ActiveRoute.RouteTracker);
+                _started = ai.StartAI(tracker);
                 _message = _started ? "AI started" : "Route not ready for AI";
             }
             catch (Exception e)

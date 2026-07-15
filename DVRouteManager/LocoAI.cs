@@ -36,6 +36,7 @@ namespace DVRouteManager
         private bool _freightHaulActive = false;
         public bool IsFreightHaulActive => _freightHaulActive;
         private bool _reverseBlockedLogged = false;
+        private bool _skipFinalBrakeOnStop = false;
 
         // Per-instance cache: per-300m-segment speed profiles, mirroring SignPlacer.GetTrackSigns.
         // null entry = track is excluded (ShouldIncludeTrack / noSignsTrackNameMarks) -> 120 km/h.
@@ -508,7 +509,10 @@ namespace DVRouteManager
             RouteTracker = routeTracker;
 
             if (RouteTracker.TrackState != RouteTracker.TrackingState.BeforeStart && RouteTracker.TrackState != RouteTracker.TrackingState.OnStart)
+            {
+                Terminal.Log($"AI start refused: route tracker state {RouteTracker.TrackState}");
                 return false;
+            }
 
             DisableCompetingMods();
             RouteTracker.Route.AdjustSwitches();
@@ -731,13 +735,17 @@ namespace DVRouteManager
 
             running = false;
 
-            for (int i = 0; i < 10; i++)
+            if (!_skipFinalBrakeOnStop)
             {
-                remoteControl.UpdateIndependentBrake(10.0f);
-                remoteControl.UpdateBrake(1.0f);
-                remoteControl.UpdateThrottle(-10.0f);
-                yield return new WaitForSeconds(0.3f);
+                for (int i = 0; i < 10; i++)
+                {
+                    remoteControl.UpdateIndependentBrake(10.0f);
+                    remoteControl.UpdateBrake(1.0f);
+                    remoteControl.UpdateThrottle(-10.0f);
+                    yield return new WaitForSeconds(0.3f);
+                }
             }
+            _skipFinalBrakeOnStop = false;
 
             if (RouteTracker != Module.ActiveRoute?.RouteTracker)
                 RouteTracker.Dispose();
@@ -857,9 +865,10 @@ namespace DVRouteManager
         // ─── Freight haul ────────────────────────────────────────────────────
 
         /// <summary>Stops both the AI driving and any active freight haul.</summary>
-        public void StopAll()
+        public void StopAll(bool applyFinalBrake = true)
         {
             _freightHaulActive = false;
+            _skipFinalBrakeOnStop = !applyFinalBrake;
             Stop();
         }
 
