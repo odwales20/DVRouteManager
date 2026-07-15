@@ -25,19 +25,9 @@ namespace DVRouteManager.CommsRadio
         {
             return new List<MenuItem>()
             {
-<<<<<<< Updated upstream
-                new MenuItem("From last used locomotive\nto job destination", "Build route", () => CreateJobRoute(true)),
-                new MenuItem("From last used locomotive\nto specific track", "Select", () => CreateTrackRoute()),
-=======
-<<<<<<< Updated upstream
-                new MenuItem("From last used locomotion\nto job destination", "Build route", () => CreateJobRoute(true)),
-                new MenuItem("From last used locomotion\nto specific track", "Select", () => CreateTrackRoute()),
-=======
                 new MenuItem("From last used locomotive\nto job destination", "Build route", () => CreateJobRoute(true)),
                 new MenuItem("From last used locomotive\nto specific track", "Select", () => CreateTrackRoute()),
                 new MenuItem("From last used locomotive\nto free track at town", "Select", () => CreateFreeTownRoute()),
->>>>>>> Stashed changes
->>>>>>> Stashed changes
                 new MenuItem("From job cars\nto job destination", "Build route", () => CreateJobRoute(false)),
                 GetExitMenu()
             };

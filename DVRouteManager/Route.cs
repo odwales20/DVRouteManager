@@ -332,20 +332,6 @@ namespace DVRouteManager
 
         public async Task<Route> FindOppositeRoute()
         {
-<<<<<<< Updated upstream
-            // Route from the original destination back to the original start.
-            // The old approach banned FirstTrack→SecondTrack and re-ran the same
-            // start→end, which forced the pathfinder around an alternate loop
-            // instead of simply reversing the path.
-            return await Route.FindRoute(LastTrack.LogicTrack(), FirstTrack.LogicTrack(), Module.settings.ReversingStrategy, Trainset);
-=======
-<<<<<<< Updated upstream
-            List<TrackTransition> trackTransitions = new List<TrackTransition>();
-
-            trackTransitions.Add(new TrackTransition() { track = FirstTrack, nextTrack = SecondTrack });
-
-            return await Route.FindRoute(FirstTrack.LogicTrack(), LastTrack.LogicTrack(), Module.settings.ReversingStrategy, Trainset, trackTransitions);
-=======
             // Exit FirstTrack from the opposite end to the current route.
             // If the route leaves via the out-side, ban all out-branches so A* must use the in-side,
             // and vice versa.
@@ -376,8 +362,6 @@ namespace DVRouteManager
 
             return await Route.FindRoute(FirstTrack.LogicTrack(), Destination,
                 Module.settings.ReversingStrategy, Trainset, bannedTransitions);
->>>>>>> Stashed changes
->>>>>>> Stashed changes
         }
 
         public async static Task<Route> FindRoute(Track begin, Track end, ReversingStrategy reversingStrategy, Trainset trainset, List<TrackTransition> trackTransitions = null)
