@@ -32,7 +32,7 @@ namespace DVRouteManager
         private const float RPM_SHIFT_UP   = 800f;
         private const float RPM_SHIFT_DOWN = 600f;
         private const float SHIFT_COOLDOWN = 3.0f; // seconds between shifts
-        private const float DM3_MAX_SPEED  = 70f;  // km/h
+        private const float DM3_MAX_SPEED  = 65f;  // km/h, aligned with SteamCruiseControl default
 
         // DriverAssist-style protection defaults. These are deliberately hard-coded for
         // the AI controller so it remains independent from the DriverAssist mod.

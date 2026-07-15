@@ -13,7 +13,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
 
-Current debug build marker: **b031**.
+Current debug build marker: **b032**.
 
 ### AI Speed Limit System (WIP)
 
@@ -43,6 +43,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Steam AI direction fix: steam cruise control now follows the actual reverser position instead of assuming positive AI target speed always means forward, so AI reversals can drive steam locos the correct way
 - SteamCruiseControl-informed steam drive: S060/S282 AI now uses a pressure-target cutoff model with recovery/coast hysteresis and a fallback steam-chest pressure reader when the sim-flow port is unavailable
 - DM3 reverse braking: route-reversal brake pulses are capped to about 7/11 train brake with a shorter hold, matching the controlled DM3 braking style instead of applying the generic heavy pulse
+- DM3 speed cap: AI target speed is capped to 65 km/h on DM3, matching SteamCruiseControl's default
 
 ### Known Remaining Issues
 
@@ -56,7 +57,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Next Test TODO
 
-- Reload into **b031** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b032** and confirm the Comms Radio build marker updates after UMM reload
 - Test Loco AI -> Drive active route: create a normal route first, start it from the AI menu, and confirm it drives the existing route rather than computing a new destination
 - Test Loco AI -> Flip active route: with a route that would push cars, flip it, then Drive active route and confirm it pulls from the other end
 - Test freight haul after coupling and check the terminal log line `Freight haul: phase 3 start from loco (...)`; it should show the attached car count and whether the loco is `first` or `last` before routing to destination
@@ -65,6 +66,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin and DriverAssist-style protections enabled; watch for flange squeal, overspeed, high acceleration, wheel slip, and braking before tighter curves
 - Test DM3 specifically: confirm gear shifting still works, loaded consists use controlled train braking, and hill climbs do not stall from over-aggressive throttle limiting
 - Test DM3 reversal braking: force a wrong-heading/reverse state and confirm the log shows `DM3 reverse brake pulse` and the train does not get an excessive full-brake slam
+- Test DM3 speed cap: on a route with a higher speed limit, confirm the DM3 AI target stays capped at 65 km/h
 - Test yard reverse safety: put cars close behind the loco/trainset, trigger an AI reversal, and confirm it keeps the other direction at normal AI target speed instead of reversing through them
 - Repeat the yard reverse test with no cars behind it and confirm normal reversing still works
 - Test freight haul route choice: with one clear end and one blocked/stock-heavy end, confirm the AI chooses the clear forward route and only reverses if no no-reverse route exists
@@ -73,12 +75,13 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b031`
+- Current debug build marker: `b032`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b031` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, AI-menu route flip, loco-end route starts, steam AI direction fix, SteamCruiseControl-informed steam drive, and capped DM3 reverse braking are active
+- Next test should start by reloading into `b032` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, AI-menu route flip, loco-end route starts, steam AI direction fix, SteamCruiseControl-informed steam drive, capped DM3 reverse braking, and 65 km/h DM3 speed cap are active
 - Recent important commits:
+  - b032 - cap DM3 AI speed at 65 km/h
   - b031 - cap DM3 reverse brake pulse
   - b030 - improve steam AI pressure-target driving
   - b029 - make steam AI follow reverser direction
@@ -124,6 +127,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - **Speed limit lookahead** — geometry-based, position-aware per-segment limits with a 5 km/h target margin
 - **DriverAssist-style safety layer** — reduces throttle for heat, amps, wheel slip, and high acceleration; applies predictive braking before overspeed grows
 - **DM3 reverse brake pulse cap** — wrong-heading/reversal stops avoid the generic heavy brake pulse on DM3 consists
+- **DM3 speed cap** — DM3 AI target speed is capped to 65 km/h
 - **Turntable awareness** — stops and waits for turntable to finish rotating
 - **Competing mod safety** — disables DriverAssist and SteamCruiseControl on start
 
