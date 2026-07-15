@@ -19,6 +19,12 @@ namespace DVRouteManager
         private const float COUPLER_APPROACH_SPEED = 5.0f;
         private const float SPEED_LIMIT_TARGET_MARGIN = 5.0f; // ~3 mph headroom under sign-derived limits
         private const float REVERSE_COUPLER_CLEARANCE = 12.0f;
+        private const float DESTINATION_APPROACH_DISTANCE = 350.0f;
+        private const float DESTINATION_STOP_BUFFER = 12.0f;
+        private const float DESTINATION_APPROACH_DECEL_MS2 = 0.32f;
+        private const float DESTINATION_CRAWL_DISTANCE = 45.0f;
+        private const float DESTINATION_CRAWL_SPEED = 5.0f;
+        private const float DESTINATION_FINAL_STOP_SPEED = 1.0f;
         private const int DM3_REVERSE_BRAKE_MAX_LEVEL = 7; // 7/11 ~= SteamCruiseControl's 2/3 DM3 service brake
         private const float DM3_REVERSE_BRAKE_MAX_HOLD = 6.0f;
         private const ReversingStrategy FREIGHT_HAUL_REVERSING_STRATEGY = ReversingStrategy.OnlyIfNeeded;
@@ -607,13 +613,13 @@ namespace DVRouteManager
                     else
                     {
                         var currentPosition = GetCurrentTrackPosition();
-                        TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : 0f;
+                        TargetSpeed = currentPosition.HasValue ? GetDestinationApproachSpeed(GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance)) : 0f;
                     }
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.OnStart)
                 {
                     var currentPosition = GetCurrentTrackPosition();
-                    TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : 0f;
+                    TargetSpeed = currentPosition.HasValue ? GetDestinationApproachSpeed(GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance)) : 0f;
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.StopTrainAfterSwitch)
                 {
@@ -649,7 +655,7 @@ namespace DVRouteManager
                             shouldreverse = false;
                             yield return ReleaseAllBrakes();
                             var currentPosition = GetCurrentTrackPosition();
-                            TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : TARGET_SPEED_DEFAULT;
+                            TargetSpeed = currentPosition.HasValue ? GetDestinationApproachSpeed(GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance)) : TARGET_SPEED_DEFAULT;
                         }
                         else
                         {
@@ -657,9 +663,13 @@ namespace DVRouteManager
                             shouldreverse = false;
                             _reverseBlockedLogged = false;
                             var currentPosition = GetCurrentTrackPosition();
-                            TargetSpeed = currentPosition.HasValue ? GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance) : 0f;
+                            TargetSpeed = currentPosition.HasValue ? GetDestinationApproachSpeed(GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance)) : 0f;
                         }
                     }
+                }
+                else if (RouteTracker.TrackState == RouteTracker.TrackingState.OnFinish)
+                {
+                    TargetSpeed = 0f;
                 }
 
                 targetAcceleration = MaintainSpeed(targetAcceleration, timeDelta, speed, acceleration);
@@ -678,7 +688,8 @@ namespace DVRouteManager
                 {
                     if (RouteTracker.Route.LastTrack.LogicTrack().IsFree(RouteTracker.Trainset))
                     {
-                        break;
+                        if (speed < DESTINATION_FINAL_STOP_SPEED)
+                            break;
                     }
                     else
                     {
@@ -701,6 +712,24 @@ namespace DVRouteManager
 
             if (RouteTracker != Module.ActiveRoute?.RouteTracker)
                 RouteTracker.Dispose();
+        }
+
+        private float GetDestinationApproachSpeed(float routeTargetSpeed)
+        {
+            if (RouteTracker == null)
+                return routeTargetSpeed;
+
+            float distance = Mathf.Max(0f, (float)RouteTracker.DistanceToFinish);
+            if (distance > DESTINATION_APPROACH_DISTANCE)
+                return routeTargetSpeed;
+
+            float brakingDistance = Mathf.Max(0f, distance - DESTINATION_STOP_BUFFER);
+            float brakeLimitedSpeed = Mathf.Sqrt(2f * DESTINATION_APPROACH_DECEL_MS2 * brakingDistance) * 3.6f;
+
+            if (distance < DESTINATION_CRAWL_DISTANCE)
+                brakeLimitedSpeed = Mathf.Min(brakeLimitedSpeed, DESTINATION_CRAWL_SPEED);
+
+            return Mathf.Max(0f, Mathf.Min(routeTargetSpeed, brakeLimitedSpeed));
         }
 
         private bool IsDM3()
