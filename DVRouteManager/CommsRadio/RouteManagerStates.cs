@@ -481,10 +481,18 @@ namespace DVRouteManager.CommsRadio
         private enum FlipStatus { Pending, Done, Error }
         private FlipStatus _status = FlipStatus.Pending;
         private string _message = "";
+        private readonly AStateBehaviour _returnState;
+        private readonly bool _stopAI;
 
         public RouteManagerFlipRouteState()
+            : this(new RouteManagerRouteInfoState(), false)
+        { }
+
+        public RouteManagerFlipRouteState(AStateBehaviour returnState, bool stopAI)
             : base(new CommsRadioState("ROUTE MANAGER", "Flipping route...", "WAIT"))
         {
+            _returnState = returnState;
+            _stopAI = stopAI;
             Module.StartCoroutine(Flip());
         }
 
@@ -498,6 +506,9 @@ namespace DVRouteManager.CommsRadio
                 _status = FlipStatus.Error;
                 yield break;
             }
+
+            if (_stopAI)
+                Module.TryGetLocoAI(PlayerManager.LastLoco)?.StopAll();
 
             System.Threading.Tasks.Task<Route> task = null;
             try { task = Module.ActiveRoute.Route.FindOppositeRoute(); }
@@ -539,7 +550,7 @@ namespace DVRouteManager.CommsRadio
         public override AStateBehaviour OnUpdate(CommsRadioUtility utility)
         {
             if (_status != FlipStatus.Pending)
-                return new RouteManagerMessageState(_message, new RouteManagerRouteInfoState());
+                return new RouteManagerMessageState(_message, _returnState);
             return this;
         }
 
@@ -563,7 +574,7 @@ namespace DVRouteManager.CommsRadio
             TrainCar loco = PlayerManager.LastLoco;
             LocoAI ai = Module.TryGetLocoAI(loco);
             bool active = ai != null && (ai.IsRunning || ai.IsFreightHaulActive);
-            var items = new System.Collections.Generic.List<string> { "Freight haul", "Drive active route", "Drive to destination" };
+            var items = new System.Collections.Generic.List<string> { "Freight haul", "Drive active route", "Flip active route", "Drive to destination" };
             if (active) items.Add("Stop AI");
             items.Add("< Back");
             return items.ToArray();
@@ -598,6 +609,8 @@ namespace DVRouteManager.CommsRadio
                         return BuildFreightHaulJobSelect();
                     if (selected == "Drive active route")
                         return new RouteManagerDriveActiveRouteStartState();
+                    if (selected == "Flip active route")
+                        return new RouteManagerFlipRouteState(new RouteManagerLocoAIMenuState(), stopAI: true);
                     if (selected == "Drive to destination")
                     {
                         if (PlayerManager.LastLoco == null)
