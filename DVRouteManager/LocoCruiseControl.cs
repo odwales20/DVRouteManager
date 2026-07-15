@@ -69,6 +69,8 @@ namespace DVRouteManager
         // ── Steam (S060 / S282) state ────────────────────────────────────────
         private bool                       _isSteam;
         private BaseControlsOverrider      _steamOverrider;
+        private const float STEAM_CUTOFF_FORWARD_MIN = 0.52f;
+        private const float STEAM_CUTOFF_REVERSE_MAX = 0.48f;
 
         // Smoothed control positions
         private float _steamRegulator      = 0f;
@@ -815,7 +817,19 @@ namespace DVRouteManager
                 return false;
             if (reverser == "F")
                 return true;
-            return TargetSpeed >= 0f;
+            return _steamCutoff >= 0.5f;
+        }
+
+        protected void SnapSteamCutoffForDirection(bool forward)
+        {
+            if (!_isSteam || _steamOverrider?.Reverser == null)
+                return;
+
+            _steamPulseBraking = false;
+            _steamPulseHigh = false;
+            _steamRecoveringToTarget = true;
+            _steamCutoff = forward ? STEAM_CUTOFF_FORWARD_MIN : STEAM_CUTOFF_REVERSE_MAX;
+            _steamOverrider.Reverser.Set(_steamCutoff);
         }
 
         private void SteamSetRegulatorSmooth(float target)

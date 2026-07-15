@@ -810,6 +810,7 @@ namespace DVRouteManager
             ToggleDirection toggle = forward ? ToggleDirection.UP : ToggleDirection.DOWN;
             remoteControl.UpdateReverser(toggle);
             remoteControl.UpdateReverser(toggle);
+            SnapSteamCutoffForDirection(forward);
             Terminal.Log($"AI initial direction: {(forward ? "forward" : "reverse")} for route start");
         }
 

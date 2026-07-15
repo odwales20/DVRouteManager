@@ -19,6 +19,8 @@ namespace DVRouteManager
         private readonly float throttleStep;
         private readonly float brakeStep;
         private readonly float indBrakeStep;
+        private const float REVERSER_FORWARD_MIN = 0.52f;
+        private const float REVERSER_REVERSE_MAX = 0.48f;
 
         private MultipleUnitStateObserver _muObserver;
 
@@ -46,8 +48,8 @@ namespace DVRouteManager
         public string GetReverserSymbol()
         {
             float v = co.Reverser?.Value ?? 0.5f;
-            if (v == 1f) return "F";
-            if (v == 0f) return "R";
+            if (v >= REVERSER_FORWARD_MIN) return "F";
+            if (v <= REVERSER_REVERSE_MAX) return "R";
             return "N";
         }
 
