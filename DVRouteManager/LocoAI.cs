@@ -573,9 +573,7 @@ namespace DVRouteManager
 
             bool shouldreverse = false;
 
-            remoteControl.UpdateReverser(ToggleDirection.UP);
-            yield return null;
-            remoteControl.UpdateReverser(ToggleDirection.UP);
+            SetInitialReverserForRoute();
             yield return null;
 
             float prevSpeed = 0.0f;
@@ -796,6 +794,49 @@ namespace DVRouteManager
             if (Module.ActiveRoute == null || !Module.ActiveRoute.IsSet || Module.ActiveRoute.Route != routeTracker.Route)
                 return false;
             return true;
+        }
+
+        private void SetInitialReverserForRoute()
+        {
+            bool forward = ShouldStartForwardForRoute();
+            string current = remoteControl.GetReverserSymbol()?.ToUpperInvariant();
+
+            if (forward && current == "F")
+                return;
+            if (!forward && current == "R")
+                return;
+
+            // Step twice so N->F/R and opposite-end F<->R both land on the requested side.
+            ToggleDirection toggle = forward ? ToggleDirection.UP : ToggleDirection.DOWN;
+            remoteControl.UpdateReverser(toggle);
+            remoteControl.UpdateReverser(toggle);
+            Terminal.Log($"AI initial direction: {(forward ? "forward" : "reverse")} for route start");
+        }
+
+        private bool ShouldStartForwardForRoute()
+        {
+            try
+            {
+                var path = RouteTracker?.Route?.Path;
+                if (path == null || path.Count < 2 || trainCar == null)
+                    return true;
+
+                RailTrack nextTrack = path[1];
+                Vector3 nextPos = nextTrack.transform.position;
+                float frontDistance = trainCar.frontCoupler != null
+                    ? (trainCar.frontCoupler.transform.position - nextPos).sqrMagnitude
+                    : float.MaxValue;
+                float rearDistance = trainCar.rearCoupler != null
+                    ? (trainCar.rearCoupler.transform.position - nextPos).sqrMagnitude
+                    : float.MaxValue;
+
+                return frontDistance <= rearDistance;
+            }
+            catch (Exception e)
+            {
+                Module.mod.Logger.Log("ShouldStartForwardForRoute: " + e.Message);
+                return true;
+            }
         }
 
         private bool ShouldRecoverDestinationStall(float speedKmh)

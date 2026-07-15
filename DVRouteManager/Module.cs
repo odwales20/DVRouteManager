@@ -24,7 +24,7 @@ namespace DVRouteManager
 #endif
     static class Module
     {
-        public const string BUILD = "b041";
+        public const string BUILD = "b042";
         private const string AUDIO_DIRECTORY = "audio\\";
         public static UnityModManager.ModEntry mod;
         public static Settings settings;
