@@ -19,6 +19,8 @@ namespace DVRouteManager
         private const float COUPLER_APPROACH_SPEED = 5.0f;
         private const float SPEED_LIMIT_TARGET_MARGIN = 5.0f; // ~3 mph headroom under sign-derived limits
         private const float REVERSE_COUPLER_CLEARANCE = 12.0f;
+        private const int DM3_REVERSE_BRAKE_MAX_LEVEL = 7; // 7/11 ~= SteamCruiseControl's 2/3 DM3 service brake
+        private const float DM3_REVERSE_BRAKE_MAX_HOLD = 6.0f;
         private const ReversingStrategy FREIGHT_HAUL_REVERSING_STRATEGY = ReversingStrategy.OnlyIfNeeded;
         private RouteTracker RouteTracker;
 
@@ -629,6 +631,12 @@ namespace DVRouteManager
                         //https://www.wolframalpha.com/input/?i=InterpolatingPolynomial%5B%7B%7B5%2C+4%7D%2C+%7B100%2C+15%7D%7D%2C+x%5D
                         int brakeLevel = 11 * ((int)speed - 5) / 95 + 4;
                         float brakeTime = speed / 5.0f;
+                        if (IsDM3())
+                        {
+                            brakeLevel = Mathf.Min(brakeLevel, DM3_REVERSE_BRAKE_MAX_LEVEL);
+                            brakeTime = Mathf.Min(brakeTime, DM3_REVERSE_BRAKE_MAX_HOLD);
+                            Terminal.Log($"DM3 reverse brake pulse: level {brakeLevel}/11 hold {brakeTime:0.0}s");
+                        }
                         Module.StartCoroutine(BrakePulse(brakeLevel, brakeTime));
                         TargetSpeed = 0.0f;
                         shouldreverse = true;
@@ -693,6 +701,21 @@ namespace DVRouteManager
 
             if (RouteTracker != Module.ActiveRoute?.RouteTracker)
                 RouteTracker.Dispose();
+        }
+
+        private bool IsDM3()
+        {
+            try
+            {
+                string id = trainCar?.carLivery?.parentType?.id ?? "";
+                if (id == "LocoDM3")
+                    return true;
+                return trainCar?.carType.ToString() == "LocoDM3";
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         bool IsCouplerInRange(float range)
