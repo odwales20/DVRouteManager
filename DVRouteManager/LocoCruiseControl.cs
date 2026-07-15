@@ -630,7 +630,7 @@ namespace DVRouteManager
         {
             if (_steamOverrider == null) return 0f;
 
-            bool forward  = TargetSpeed >= 0f;
+            bool forward  = IsSteamReverserForward();
             float absTarget = Mathf.Abs(TargetSpeed);
             float absSpeed  = Mathf.Abs(speed);
 
@@ -649,7 +649,7 @@ namespace DVRouteManager
 
             float speedDiff = absSpeed - absTarget; // positive → too fast
 
-            if (speedDiff > 0.1f)
+            if (speedDiff > 2.0f)
             {
                 // ── Pulse braking ─────────────────────────────────────────────
                 if (!_steamPulseBraking)
@@ -689,7 +689,7 @@ namespace DVRouteManager
                 _steamPulseHigh    = false;
                 SteamSetBrake(0f);
 
-                if (absSpeed < absTarget - 0.1f)
+                if (absSpeed < absTarget - 0.5f)
                 {
                     // ── Accelerating ──────────────────────────────────────────
                     float targetRegulator, targetCutoff;
@@ -738,13 +738,22 @@ namespace DVRouteManager
                 else
                 {
                     // ── Coasting at target speed ──────────────────────────────
-                    // Keep tiny regulator so steam flows (engine sound + steam heat)
-                    SteamSetRegulatorSmooth(0.1f);
+                    SteamSetRegulatorSmooth(0f);
                     SteamSetCutoffSmooth(0.5f, dt);
                 }
             }
 
             return 0f;
+        }
+
+        private bool IsSteamReverserForward()
+        {
+            string reverser = remoteControl?.GetReverserSymbol();
+            if (reverser == "R")
+                return false;
+            if (reverser == "F")
+                return true;
+            return TargetSpeed >= 0f;
         }
 
         private void SteamSetRegulatorSmooth(float target)
