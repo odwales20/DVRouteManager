@@ -81,6 +81,14 @@ namespace DVRouteManager
         private SimController _steamSimCtrl;
         private MethodInfo    _tryGetPortMI;
         private PropertyInfo  _portValueProp;
+        private bool          _steamEngineScanAttempted;
+        private bool          _steamChestMemberResolved;
+        private object        _steamEngineComponent;
+        private PropertyInfo  _steamChestPressureProperty;
+        private FieldInfo     _steamChestPressureField;
+        private MethodInfo    _steamChestPressureMethod;
+        private FieldInfo     _steamSimComponentsField;
+        private bool          _steamRecoveringToTarget;
 
         // DM3 cache for simFlow.TryGetPort
         private SimController _dm3SimCtrl;
@@ -651,6 +659,7 @@ namespace DVRouteManager
 
             if (speedDiff > 2.0f)
             {
+                _steamRecoveringToTarget = false;
                 // ── Pulse braking ─────────────────────────────────────────────
                 if (!_steamPulseBraking)
                 {
@@ -689,47 +698,51 @@ namespace DVRouteManager
                 _steamPulseHigh    = false;
                 SteamSetBrake(0f);
 
-                if (absSpeed < absTarget - 0.5f)
+                if (absSpeed < absTarget - 2.0f)
+                    _steamRecoveringToTarget = true;
+
+                if (_steamRecoveringToTarget && absSpeed >= absTarget - 0.5f)
+                    _steamRecoveringToTarget = false;
+
+                if (_steamRecoveringToTarget)
                 {
                     // ── Accelerating ──────────────────────────────────────────
                     float targetRegulator, targetCutoff;
 
-                    if (absSpeed < 10f)
+                    if (avgPressure < 0f)
+                        avgPressure = 8f;
+
+                    const float PRESSURE_TARGET = 12f;
+                    const float REGULATOR_RAMP_END_SPEED = 20f;
+
+                    if (absSpeed < REGULATOR_RAMP_END_SPEED)
                     {
-                        // Gentle start — ramp up regulator, full cutoff
-                        targetRegulator = 0.1f + 0.9f * (absSpeed / 10f);
+                        // SteamCruiseControl ramps regulator in gently while keeping full cutoff.
+                        float ramp = Mathf.Clamp01(absSpeed / REGULATOR_RAMP_END_SPEED);
+                        targetRegulator = 0.1f + 0.9f * ramp;
                         targetCutoff    = forward ? 1f : 0f;
-                    }
-                    else if (absSpeed < 20f)
-                    {
-                        // Full regulator, full cutoff until up to speed
-                        targetRegulator = 1f;
-                        targetCutoff    = forward ? 1f : 0f;
-                    }
-                    else if (avgPressure < 5f)
-                    {
-                        // Low chest pressure: wide-open cutoff to admit more steam
-                        targetRegulator = 1f;
-                        targetCutoff    = forward ? 0.35f : 0.15f;
-                    }
-                    else if (avgPressure < 8f)
-                    {
-                        targetRegulator = 1f;
-                        targetCutoff    = forward
-                            ? (0.4f + 0.1f * (avgPressure - 5f) / 3f)
-                            : 0.25f;
-                    }
-                    else if (avgPressure < 12f)
-                    {
-                        targetRegulator = 1f;
-                        float t = (avgPressure - 8f) / 4f;
-                        targetCutoff    = forward ? (0.55f + 0.25f * t) : 0.35f;
                     }
                     else
                     {
-                        // Good pressure: efficient cutoff (~75%)
                         targetRegulator = 1f;
-                        targetCutoff    = forward ? 0.75f : 0.25f;
+                        float pressureError = avgPressure - (PRESSURE_TARGET - 1f);
+                        float normalized = Mathf.Clamp(pressureError / 3f, -1f, 1f);
+                        float shaped = Mathf.Sign(normalized) * Mathf.Pow(Mathf.Abs(normalized), 0.7f);
+                        float pressureCutoff = forward
+                            ? Mathf.Lerp(0.55f, 0.825f, (shaped + 1f) * 0.5f)
+                            : Mathf.Lerp(0.48f, 0.175f, (shaped + 1f) * 0.5f);
+
+                        // Blend out of full cutoff between 20 and 40 km/h like SteamCruiseControl.
+                        float blendEndSpeed = REGULATOR_RAMP_END_SPEED * 2f;
+                        if ((absTarget > 0.1f && absSpeed < absTarget - 2f) || absSpeed >= blendEndSpeed)
+                        {
+                            targetCutoff = pressureCutoff;
+                        }
+                        else
+                        {
+                            float blend = Mathf.Clamp01((absSpeed - REGULATOR_RAMP_END_SPEED) / REGULATOR_RAMP_END_SPEED);
+                            targetCutoff = Mathf.Lerp(forward ? 1f : 0f, pressureCutoff, blend);
+                        }
                     }
 
                     SteamSetRegulatorSmooth(targetRegulator);
@@ -800,27 +813,153 @@ namespace DVRouteManager
 
         private float GetSteamChestPressure()
         {
+            float pressure = TryGetSteamChestPressureFromSimFlow();
+            if (!float.IsNaN(pressure))
+                return pressure;
+
+            pressure = TryGetSteamChestPressureFromEngine();
+            if (!float.IsNaN(pressure))
+                return pressure;
+
+            return 8f;
+        }
+
+        private float TryGetSteamChestPressureFromSimFlow()
+        {
             try
             {
                 if (_steamSimCtrl == null)
-                    _steamSimCtrl = trainCar?.GetComponentInChildren<SimController>();
-                if (_steamSimCtrl?.simFlow == null) return 8f;
+                    _steamSimCtrl = trainCar?.SimController ?? trainCar?.GetComponentInChildren<SimController>(true);
+                if (_steamSimCtrl?.simFlow == null) return float.NaN;
 
                 if (_tryGetPortMI == null)
                     _tryGetPortMI = _steamSimCtrl.simFlow.GetType()
-                        .GetMethod("TryGetPort", BindingFlags.Instance | BindingFlags.Public);
-                if (_tryGetPortMI == null) return 8f;
+                        .GetMethod("TryGetPort", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (_tryGetPortMI == null) return float.NaN;
 
                 var args = new object[] { "steamEngine.STEAM_CHEST_PRESSURE", null, true };
                 if (!(bool)_tryGetPortMI.Invoke(_steamSimCtrl.simFlow, args) || args[1] == null)
-                    return 8f;
+                    return float.NaN;
 
                 if (_portValueProp == null)
                     _portValueProp = args[1].GetType().GetProperty("Value");
 
-                return _portValueProp != null ? (float)_portValueProp.GetValue(args[1]) - 1f : 8f;
+                return _portValueProp != null ? Convert.ToSingle(_portValueProp.GetValue(args[1])) - 1f : float.NaN;
             }
-            catch { return 8f; }
+            catch { return float.NaN; }
+        }
+
+        private float TryGetSteamChestPressureFromEngine()
+        {
+            try
+            {
+                if (_steamEngineComponent == null && !_steamEngineScanAttempted)
+                {
+                    _steamEngineScanAttempted = true;
+                    _steamEngineComponent = FindSteamEngineComponent();
+                }
+
+                if (_steamEngineComponent == null)
+                    return float.NaN;
+
+                if (!_steamChestMemberResolved)
+                {
+                    _steamChestMemberResolved = true;
+                    ResolveSteamChestPressureMember(_steamEngineComponent);
+                }
+
+                if (_steamChestPressureProperty != null)
+                    return Convert.ToSingle(_steamChestPressureProperty.GetValue(_steamEngineComponent));
+                if (_steamChestPressureField != null)
+                    return Convert.ToSingle(_steamChestPressureField.GetValue(_steamEngineComponent));
+                if (_steamChestPressureMethod != null)
+                    return Convert.ToSingle(_steamChestPressureMethod.Invoke(_steamEngineComponent, null));
+            }
+            catch { }
+
+            return float.NaN;
+        }
+
+        private object FindSteamEngineComponent()
+        {
+            try
+            {
+                SimController sim = _steamSimCtrl ?? trainCar?.SimController ?? trainCar?.GetComponentInChildren<SimController>(true);
+                if (sim == null)
+                    return null;
+
+                if (_steamSimComponentsField == null)
+                {
+                    Type simType = sim.GetType();
+                    _steamSimComponentsField = simType.GetField("simComponents", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                        ?? simType.GetField("components", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                }
+
+                var components = _steamSimComponentsField?.GetValue(sim) as IEnumerable;
+                if (components == null)
+                    return null;
+
+                foreach (object component in components)
+                {
+                    Type type = component?.GetType();
+                    string name = type?.FullName ?? type?.Name ?? "";
+                    if (name.IndexOf("ReciprocatingSteamEngine", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return component;
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        private void ResolveSteamChestPressureMember(object engine)
+        {
+            if (engine == null)
+                return;
+
+            Type type = engine.GetType();
+            foreach (PropertyInfo property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (IsSteamChestPressureMember(property.Name) && IsNumericType(property.PropertyType))
+                {
+                    _steamChestPressureProperty = property;
+                    return;
+                }
+            }
+
+            foreach (FieldInfo field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (IsSteamChestPressureMember(field.Name) && IsNumericType(field.FieldType))
+                {
+                    _steamChestPressureField = field;
+                    return;
+                }
+            }
+
+            foreach (MethodInfo method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (method.GetParameters().Length == 0 && IsSteamChestPressureMember(method.Name) && IsNumericType(method.ReturnType))
+                {
+                    _steamChestPressureMethod = method;
+                    return;
+                }
+            }
+        }
+
+        private static bool IsSteamChestPressureMember(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return false;
+
+            string lower = name.ToLowerInvariant();
+            return lower.Contains("steam") && lower.Contains("chest");
+        }
+
+        private static bool IsNumericType(Type type)
+        {
+            if (type == typeof(float) || type == typeof(double) || type == typeof(int) || type == typeof(long) || type == typeof(decimal))
+                return true;
+            return type != null && !type.IsEnum && typeof(IConvertible).IsAssignableFrom(type);
         }
 
         // ────────────────────────────────────────────────────────────────────

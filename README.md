@@ -13,7 +13,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
 
-Current debug build marker: **b029**.
+Current debug build marker: **b030**.
 
 ### AI Speed Limit System (WIP)
 
@@ -41,6 +41,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - AI route flipping: the Loco AI menu now has **Flip active route**, which stops any current AI drive, flips the active route direction, and returns to the AI menu
 - Loco-end route starts: AI routes created from the player locomotive now start from the actual loco bogie track rather than `trainset.firstCar`, with debug logging for attached car count and whether the loco is first/last/middle in the trainset
 - Steam AI direction fix: steam cruise control now follows the actual reverser position instead of assuming positive AI target speed always means forward, so AI reversals can drive steam locos the correct way
+- SteamCruiseControl-informed steam drive: S060/S282 AI now uses a pressure-target cutoff model with recovery/coast hysteresis and a fallback steam-chest pressure reader when the sim-flow port is unavailable
 
 ### Known Remaining Issues
 
@@ -54,11 +55,12 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Next Test TODO
 
-- Reload into **b029** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b030** and confirm the Comms Radio build marker updates after UMM reload
 - Test Loco AI -> Drive active route: create a normal route first, start it from the AI menu, and confirm it drives the existing route rather than computing a new destination
 - Test Loco AI -> Flip active route: with a route that would push cars, flip it, then Drive active route and confirm it pulls from the other end
 - Test freight haul after coupling and check the terminal log line `Freight haul: phase 3 start from loco (...)`; it should show the attached car count and whether the loco is `first` or `last` before routing to destination
 - Test S060/S282 AI driving in both directions: create a short route, start Drive active route, then force a reverse/flip case and confirm cutoff follows the reverser rather than fighting it
+- Check S060/S282 steam pressure behavior: while accelerating above 20 km/h, cutoff should settle around pressure target instead of staying wide open; near target it should coast with regulator closed
 - Re-test light-engine end-to-end driving with the 5 km/h speed-limit margin and DriverAssist-style protections enabled; watch for flange squeal, overspeed, high acceleration, wheel slip, and braking before tighter curves
 - Test DM3 specifically: confirm gear shifting still works, loaded consists use controlled train braking, and hill climbs do not stall from over-aggressive throttle limiting
 - Test yard reverse safety: put cars close behind the loco/trainset, trigger an AI reversal, and confirm it keeps the other direction at normal AI target speed instead of reversing through them
@@ -69,12 +71,13 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b029`
+- Current debug build marker: `b030`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b029` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, AI-menu route flip, loco-end route starts, and steam AI direction fix are active
+- Next test should start by reloading into `b030` so the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, AI-menu route flip, loco-end route starts, steam AI direction fix, and SteamCruiseControl-informed steam drive are active
 - Recent important commits:
+  - b030 - improve steam AI pressure-target driving
   - b029 - make steam AI follow reverser direction
   - b028 - start AI routes from the actual locomotive end
   - b027 - add AI-menu flip active route option
@@ -114,7 +117,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - **Flip active route from AI menu** — reverse the active route direction before driving when the selected end would push cars instead of pulling them
 - **Loco-end route starts** — AI route creation from the player loco uses the actual locomotive track and logs the trainset car count/front-rear position
 - **Freight haul automation** — 4-phase: route to cars → couple → drive → deliver
-- **Steam AI support** — S060/S282 use direct regulator/cutoff/brake control with pressure-aware cutoff and reverser-aware direction
+- **Steam AI support** — S060/S282 use direct regulator/cutoff/brake control with pressure-target cutoff, fallback pressure reads, coasting hysteresis, and reverser-aware direction
 - **Speed limit lookahead** — geometry-based, position-aware per-segment limits with a 5 km/h target margin
 - **DriverAssist-style safety layer** — reduces throttle for heat, amps, wheel slip, and high acceleration; applies predictive braking before overspeed grows
 - **Turntable awareness** — stops and waits for turntable to finish rotating
