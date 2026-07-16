@@ -76,7 +76,7 @@ namespace DVRouteManager
         private float _steamRegulator      = 0f;
         private float _steamCutoff         = 0.5f;
         private float _steamBrakeTarget    = 0f;
-        private bool? _steamCutoffDirectionForward;
+        private float _steamLockedCutoffDirection = 0f;
 
         // Pulse-braking state
         private bool  _steamPulseBraking   = false;
@@ -139,7 +139,7 @@ namespace DVRouteManager
 
         public bool StartCruiseControl(float targetSpeed)
         {
-            _steamCutoffDirectionForward = null;
+            _steamLockedCutoffDirection = 0f;
             this.TargetSpeed = targetSpeed;
             running = true;
             Module.StartCoroutine(CruiseControlCoroutine());
@@ -691,8 +691,9 @@ namespace DVRouteManager
         {
             if (_steamOverrider == null) return 0f;
 
-            bool forward  = IsSteamReverserForward();
-            float absTarget = Mathf.Abs(TargetSpeed);
+            float signedTarget = GetSteamSignedTargetSpeed();
+            bool forward  = signedTarget >= 0f;
+            float absTarget = Mathf.Abs(signedTarget);
             float absSpeed  = Mathf.Abs(speed);
 
             float pressure    = GetSteamChestPressure();
@@ -814,8 +815,8 @@ namespace DVRouteManager
 
         private bool IsSteamReverserForward()
         {
-            if (_steamCutoffDirectionForward.HasValue)
-                return _steamCutoffDirectionForward.Value;
+            if (Mathf.Abs(_steamLockedCutoffDirection) > 0.01f)
+                return _steamLockedCutoffDirection > 0f;
 
             string reverser = remoteControl?.GetReverserSymbol();
             if (reverser == "R")
@@ -823,6 +824,15 @@ namespace DVRouteManager
             if (reverser == "F")
                 return true;
             return _steamCutoff >= 0.5f;
+        }
+
+        private float GetSteamSignedTargetSpeed()
+        {
+            if (Mathf.Abs(TargetSpeed) < Mathf.Epsilon)
+                return 0f;
+            if (Mathf.Abs(_steamLockedCutoffDirection) > 0.01f)
+                return Mathf.Abs(TargetSpeed) * Mathf.Sign(_steamLockedCutoffDirection);
+            return TargetSpeed;
         }
 
         protected void SnapSteamCutoffForDirection(bool forward)
@@ -833,7 +843,7 @@ namespace DVRouteManager
             _steamPulseBraking = false;
             _steamPulseHigh = false;
             _steamRecoveringToTarget = true;
-            _steamCutoffDirectionForward = forward;
+            _steamLockedCutoffDirection = forward ? 1f : -1f;
             _steamCutoff = forward ? STEAM_CUTOFF_FORWARD_MIN : STEAM_CUTOFF_REVERSE_MAX;
             _steamOverrider.Reverser.Set(_steamCutoff);
         }
@@ -847,9 +857,9 @@ namespace DVRouteManager
         // cutoff 0 = full reverse, 0.5 = neutral, 1 = full forward
         private void SteamSetCutoffSmooth(float target, float dt)
         {
-            if (_steamCutoffDirectionForward.HasValue)
+            if (Mathf.Abs(_steamLockedCutoffDirection) > 0.01f)
             {
-                target = _steamCutoffDirectionForward.Value
+                target = _steamLockedCutoffDirection > 0f
                     ? Mathf.Max(STEAM_CUTOFF_FORWARD_MIN, target)
                     : Mathf.Min(STEAM_CUTOFF_REVERSE_MAX, target);
             }
@@ -1052,7 +1062,7 @@ namespace DVRouteManager
                 _steamRegulator = 0f;
                 _steamPulseBraking = false;
                 _steamRecoveringToTarget = false;
-                _steamCutoffDirectionForward = null;
+                _steamLockedCutoffDirection = 0f;
                 _steamOverrider.Throttle?.Set(0f);
                 _steamOverrider.Brake?.Set(1f);
                 _steamOverrider.Reverser?.Set(0.5f);
