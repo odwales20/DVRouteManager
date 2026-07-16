@@ -802,9 +802,15 @@ namespace DVRouteManager
             string current = remoteControl.GetReverserSymbol()?.ToUpperInvariant();
 
             if (forward && current == "F")
+            {
+                SnapSteamCutoffForDirection(true);
                 return;
+            }
             if (!forward && current == "R")
+            {
+                SnapSteamCutoffForDirection(false);
                 return;
+            }
 
             // Step twice so N->F/R and opposite-end F<->R both land on the requested side.
             ToggleDirection toggle = forward ? ToggleDirection.UP : ToggleDirection.DOWN;
@@ -914,6 +920,7 @@ namespace DVRouteManager
             yield return null;
             remoteControl.UpdateReverser(direction ? ToggleDirection.DOWN : ToggleDirection.UP);
             yield return null;
+            SnapSteamCutoffForDirection(!direction);
 
             yield return ReleaseAllBrakes();
         }

@@ -13,7 +13,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
 
-Current debug build marker: **b043**.
+Current debug build marker: **b044**.
 
 ### AI Speed Limit System (WIP)
 
@@ -48,6 +48,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Steam AI direction fix: steam cruise control now follows the actual reverser position instead of assuming positive AI target speed always means forward, so AI reversals can drive steam locos the correct way
 - Steam route-start cutoff fix: AI startup no longer forces the steam cutoff/reverser forward; it picks forward or reverse from the route's first track transition
 - Steam cutoff direction snap: route-start direction now mirrors SteamCruiseControl's cutoff thresholds (`>=0.52` forward, `<=0.48` reverse) and snaps steam cutoff to the requested side before the AI starts driving
+- Steam cutoff direction lock: while AI is driving steam, every cutoff write is clamped to the selected side so coasting/stopping cannot drift to neutral and then get treated as forward
 - SteamCruiseControl-informed steam drive: S060/S282 AI now uses a pressure-target cutoff model with recovery/coast hysteresis and a fallback steam-chest pressure reader when the sim-flow port is unavailable
 - DM3 reverse braking: route-reversal brake pulses are capped to about 7/11 train brake with a shorter hold, matching the controlled DM3 braking style instead of applying the generic heavy pulse
 - DM3 speed cap: AI target speed is capped to 65 km/h on DM3, matching SteamCruiseControl's default
@@ -66,7 +67,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Next Test TODO
 
-- Reload into **b043** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b044** and confirm the Comms Radio build marker updates after UMM reload
 - Test Route to refuel: with a diesel loco confirm it offers Diesel fuel; with steam confirm it offers Water and Coal; each should build a route to the nearest matching point
 - Test Loco AI -> Drive active route: create a normal route first, start it from the AI menu, and confirm it drives the existing route rather than computing a new destination
 - Test Loco AI -> Flip active route: with a route that would push cars, flip it, then Drive active route and confirm it starts reliably and pulls from the other end without the old AI brake loop fighting it
@@ -91,12 +92,13 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b043`
+- Current debug build marker: `b044`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b043` so SteamCruiseControl-style steam cutoff direction snap, steam route-start cutoff direction, AI no-route safety, AI-menu flip/drive tracker rebuild, refuel routing, the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, DE6 throttle/brake smoothing, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, loco-end route starts, steam AI direction fix, SteamCruiseControl-informed steam drive, capped DM3 reverse braking, 65 km/h DM3 speed cap, destination roll-in braking, destination anti-stall recovery, and rear-end based destination siding clearance are active
+- Next test should start by reloading into `b044` so SteamCruiseControl-style steam cutoff direction lock/snap, steam route-start cutoff direction, AI no-route safety, AI-menu flip/drive tracker rebuild, refuel routing, the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, DE6 throttle/brake smoothing, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, loco-end route starts, steam AI direction fix, SteamCruiseControl-informed steam drive, capped DM3 reverse braking, 65 km/h DM3 speed cap, destination roll-in braking, destination anti-stall recovery, and rear-end based destination siding clearance are active
 - Recent important commits:
+  - b044 - lock steam cutoff direction during AI drive
   - b043 - snap steam cutoff direction using SteamCruiseControl thresholds
   - b042 - choose AI initial direction from route
   - b041 - prevent AI movement without active route

@@ -76,6 +76,7 @@ namespace DVRouteManager
         private float _steamRegulator      = 0f;
         private float _steamCutoff         = 0.5f;
         private float _steamBrakeTarget    = 0f;
+        private bool? _steamCutoffDirectionForward;
 
         // Pulse-braking state
         private bool  _steamPulseBraking   = false;
@@ -138,6 +139,7 @@ namespace DVRouteManager
 
         public bool StartCruiseControl(float targetSpeed)
         {
+            _steamCutoffDirectionForward = null;
             this.TargetSpeed = targetSpeed;
             running = true;
             Module.StartCoroutine(CruiseControlCoroutine());
@@ -812,6 +814,9 @@ namespace DVRouteManager
 
         private bool IsSteamReverserForward()
         {
+            if (_steamCutoffDirectionForward.HasValue)
+                return _steamCutoffDirectionForward.Value;
+
             string reverser = remoteControl?.GetReverserSymbol();
             if (reverser == "R")
                 return false;
@@ -828,6 +833,7 @@ namespace DVRouteManager
             _steamPulseBraking = false;
             _steamPulseHigh = false;
             _steamRecoveringToTarget = true;
+            _steamCutoffDirectionForward = forward;
             _steamCutoff = forward ? STEAM_CUTOFF_FORWARD_MIN : STEAM_CUTOFF_REVERSE_MAX;
             _steamOverrider.Reverser.Set(_steamCutoff);
         }
@@ -841,6 +847,13 @@ namespace DVRouteManager
         // cutoff 0 = full reverse, 0.5 = neutral, 1 = full forward
         private void SteamSetCutoffSmooth(float target, float dt)
         {
+            if (_steamCutoffDirectionForward.HasValue)
+            {
+                target = _steamCutoffDirectionForward.Value
+                    ? Mathf.Max(STEAM_CUTOFF_FORWARD_MIN, target)
+                    : Mathf.Min(STEAM_CUTOFF_REVERSE_MAX, target);
+            }
+
             float delta = target - _steamCutoff;
             if (Mathf.Abs(delta) > 0.005f)
                 _steamCutoff += delta * 0.15f * dt;
@@ -1039,6 +1052,7 @@ namespace DVRouteManager
                 _steamRegulator = 0f;
                 _steamPulseBraking = false;
                 _steamRecoveringToTarget = false;
+                _steamCutoffDirectionForward = null;
                 _steamOverrider.Throttle?.Set(0f);
                 _steamOverrider.Brake?.Set(1f);
                 _steamOverrider.Reverser?.Set(0.5f);
