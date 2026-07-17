@@ -18,6 +18,7 @@ namespace DVRouteManager
         private const float TARGET_SPEED_DEFAULT = 20.0f;
         private const float COUPLER_APPROACH_SPEED = 5.0f;
         private const float SPEED_LIMIT_TARGET_MARGIN = 5.0f; // ~3 mph headroom under sign-derived limits
+        private const float TURNOUT_SPEED_LIMIT = 30.0f;
         private const float REVERSE_COUPLER_CLEARANCE = 12.0f;
         private const float DESTINATION_APPROACH_DISTANCE = 350.0f;
         private const float DESTINATION_STOP_BUFFER = 12.0f;
@@ -242,10 +243,21 @@ namespace DVRouteManager
                 }
             }
 
+            RailTrack nextTrack = startIdx + 1 < path.Count ? path[startIdx + 1] : null;
+            if (IsTurnoutTransition(currentTrack, nextTrack, currentForward) && distAhead < lookaheadM && TURNOUT_SPEED_LIMIT < minLimit)
+            {
+                minLimit = TURNOUT_SPEED_LIMIT;
+#if DEBUG
+                limitTrack = currentTrack;
+                limitSegDistTotal = distAhead;
+#endif
+            }
+
             for (int i = startIdx + 1; i < path.Count && distAhead < lookaheadM; i++)
             {
                 var t = path[i];
                 if (t == null) break;
+                bool routeForward = GetRouteDirection(t, i);
 
                 // Yard tracks cap at YARD_SPEED_LIMIT regardless of geometry
                 if (IsYardTrack(t))
@@ -261,8 +273,7 @@ namespace DVRouteManager
                 }
                 else
                 {
-                    bool forward = GetRouteDirection(t, i);
-                    var profile = GetTrackProfile(t, forward);
+                    var profile = GetTrackProfile(t, routeForward);
                     if (profile != null)
                     {
                         foreach (var (segDist, segSpeed) in profile)
@@ -279,6 +290,17 @@ namespace DVRouteManager
                             }
                         }
                     }
+                }
+
+                RailTrack followingTrack = i + 1 < path.Count ? path[i + 1] : null;
+                float transitionDistance = distAhead + (float)t.LogicTrack().length;
+                if (IsTurnoutTransition(t, followingTrack, routeForward) && transitionDistance < lookaheadM && TURNOUT_SPEED_LIMIT < minLimit)
+                {
+                    minLimit = TURNOUT_SPEED_LIMIT;
+#if DEBUG
+                    limitTrack = t;
+                    limitSegDistTotal = transitionDistance;
+#endif
                 }
 
                 distAhead += (float)t.LogicTrack().length;
@@ -302,6 +324,19 @@ namespace DVRouteManager
 #endif
 
             return ApplySpeedLimitMargin(minLimit);
+        }
+
+        private static bool IsTurnoutTransition(RailTrack track, RailTrack nextTrack, bool forward)
+        {
+            if (track == null || nextTrack == null)
+                return false;
+
+            Junction junction = forward ? track.outJunction : track.inJunction;
+            if (junction == null)
+                return false;
+
+            return junction.inBranch?.track == nextTrack
+                || junction.outBranches.Any(b => b?.track == nextTrack);
         }
 
         private static float ApplySpeedLimitMargin(float speedLimit)
