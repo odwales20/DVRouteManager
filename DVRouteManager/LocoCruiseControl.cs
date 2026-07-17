@@ -51,16 +51,8 @@ namespace DVRouteManager
         private const float DE6_BRAKE_RELEASE_RATE = 0.10f;
         private const float DE6_BRAKE_UNDER_TARGET_RELEASE_RATE = 0.55f;
         private const float DE6_BRAKE_RELEASE_BAND = 1.0f;
-        private const float STEAM_SERVICE_BRAKE_MIN = 0.18f;
-        private const float STEAM_SERVICE_BRAKE_MAX = 0.55f;
         private const float STEAM_BRAKE_APPLY_RATE = 0.22f;
         private const float STEAM_BRAKE_RELEASE_RATE = 0.35f;
-        private const float BRAKE_HEAT_WARN_TEMP = 350f;
-        private const float BRAKE_HEAT_CRITICAL_TEMP = 525f;
-        private const float BRAKE_HEAT_WARN_PERCENT = 0.35f;
-        private const float BRAKE_HEAT_CRITICAL_PERCENT = 0.85f;
-        private const float NON_SELF_LAPPING_SERVICE_BRAKE_MIN = 0.18f;
-        private const float NON_SELF_LAPPING_SERVICE_BRAKE_MAX = 0.55f;
         private const float NON_SELF_LAPPING_BRAKE_APPLY_RATE = 0.18f;
         private const float NON_SELF_LAPPING_BRAKE_RELEASE_RATE = 0.30f;
         private const float DE2_MAX_AMPS = 750f;
@@ -123,6 +115,15 @@ namespace DVRouteManager
         private float _protectionTempRate = 0f;
         private bool _ampProtectionActive = false;
         private bool _de6BrakeProtectionActive = false;
+        private readonly AiPulseBrakeController _steamBrakeController = new AiPulseBrakeController();
+        private readonly AiPulseBrakeController _nonSelfLappingBrakeController = new AiPulseBrakeController();
+
+        // Brake cylinder reader, adapted from SteamCruiseControl's sensor wrapper.
+        private bool _brakeAccessResolved;
+        private Component _brakeSystemComponent;
+        private FieldInfo _brakeCylinderField;
+        private PropertyInfo _brakePressureProperty;
+        private bool _brakeUsesInverseLerp;
 
         // ────────────────────────────────────────────────────────────────────
 
@@ -147,6 +148,8 @@ namespace DVRouteManager
         public bool StartCruiseControl(float targetSpeed)
         {
             _steamLockedCutoffDirection = 0f;
+            _steamBrakeController.Clear();
+            _nonSelfLappingBrakeController.Clear();
             this.TargetSpeed = targetSpeed;
             running = true;
             Module.StartCoroutine(CruiseControlCoroutine());
@@ -343,6 +346,7 @@ namespace DVRouteManager
 
             if (TargetSpeed < Mathf.Epsilon)
             {
+                _nonSelfLappingBrakeController.Clear();
                 brakeTarget = 1f;
             }
             else if (!lightEngine && IsNonSelfLappingTrainBrake(simOverrider))
@@ -354,11 +358,12 @@ namespace DVRouteManager
                 if (projectedOverspeed || actualOverspeed)
                 {
                     float overspeed = Mathf.Max(0f, Mathf.Max(projectedSpeed - TargetSpeed, -speedError - 3f));
-                    brakeTarget = Mathf.Lerp(NON_SELF_LAPPING_SERVICE_BRAKE_MIN, NON_SELF_LAPPING_SERVICE_BRAKE_MAX, Mathf.Clamp01(overspeed / 12f));
-                    brakeTarget *= GetBrakeHeatScale();
+                    BrakeHeatState heat = GetBrakeHeatState();
+                    brakeTarget = _nonSelfLappingBrakeController.Update(dt, overspeed, heat.OverheatPercentage, true, GetBrakeCylinderPressure(), heat.TemperatureC);
                 }
                 else
                 {
+                    _nonSelfLappingBrakeController.Clear();
                     brakeTarget = Mathf.Max(0f, activeBrake - PROTECTION_BRAKE_RELEASE_FACTOR * activeBrake);
                 }
 
@@ -368,6 +373,7 @@ namespace DVRouteManager
             }
             else
             {
+                _nonSelfLappingBrakeController.Clear();
                 float projectedSpeed = speedKmh + accelerationKmhS * PROTECTION_BRAKING_TIME;
                 bool projectedOverspeed = speedKmh > TargetSpeed - 1f && projectedSpeed > TargetSpeed + PROTECTION_BRAKE_SPEED_BAND;
                 bool actualOverspeed = speedError < -3f;
@@ -423,7 +429,7 @@ namespace DVRouteManager
             return brake.NotchCount > 0 && brake.NotchCount <= 4;
         }
 
-        private float GetBrakeHeatScale()
+        private BrakeHeatState GetBrakeHeatState()
         {
             float maxTemp = 25f;
             float maxOverheat = 0f;
@@ -446,12 +452,152 @@ namespace DVRouteManager
             }
             catch
             {
-                return 1f;
+                return new BrakeHeatState(maxTemp, maxOverheat);
             }
 
-            float tempScale = Mathf.Lerp(1f, 0f, Mathf.InverseLerp(BRAKE_HEAT_WARN_TEMP, BRAKE_HEAT_CRITICAL_TEMP, maxTemp));
-            float overheatScale = Mathf.Lerp(1f, 0f, Mathf.InverseLerp(BRAKE_HEAT_WARN_PERCENT, BRAKE_HEAT_CRITICAL_PERCENT, maxOverheat));
-            return Mathf.Min(tempScale, overheatScale);
+            return new BrakeHeatState(maxTemp, maxOverheat);
+        }
+
+        private float GetBrakeCylinderPressure()
+        {
+            try
+            {
+                if (!_brakeAccessResolved)
+                    ResolveBrakeAccess();
+
+                if (_brakeSystemComponent == null)
+                    return 0f;
+
+                if (_brakeCylinderField != null && _brakeCylinderField.GetValue(_brakeSystemComponent) is float cylinder)
+                    return _brakeUsesInverseLerp ? Mathf.InverseLerp(1f, 4.5f, cylinder) : cylinder;
+                if (_brakePressureProperty != null && _brakePressureProperty.GetValue(_brakeSystemComponent) is float pressure)
+                    return pressure;
+            }
+            catch { }
+
+            return 0f;
+        }
+
+        private void ResolveBrakeAccess()
+        {
+            _brakeAccessResolved = true;
+            try
+            {
+                if (trainCar == null)
+                    return;
+
+                Component[] components = trainCar.GetComponentsInChildren<Component>(true);
+                foreach (Component component in components)
+                {
+                    if (component == null || component.GetType().Name.IndexOf("BrakeSystem", StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+
+                    FieldInfo cylinderField = component.GetType().GetField("brakeCylinderPressure", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (cylinderField != null)
+                    {
+                        _brakeSystemComponent = component;
+                        _brakeCylinderField = cylinderField;
+                        _brakeUsesInverseLerp = true;
+                        return;
+                    }
+
+                    PropertyInfo pressureProperty = component.GetType().GetProperty("brakePressure", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (pressureProperty != null)
+                    {
+                        _brakeSystemComponent = component;
+                        _brakePressureProperty = pressureProperty;
+                        _brakeUsesInverseLerp = false;
+                        return;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private struct BrakeHeatState
+        {
+            public readonly float TemperatureC;
+            public readonly float OverheatPercentage;
+
+            public BrakeHeatState(float temperatureC, float overheatPercentage)
+            {
+                TemperatureC = temperatureC;
+                OverheatPercentage = overheatPercentage;
+            }
+        }
+
+        private sealed class AiPulseBrakeController
+        {
+            private const float UNDERSHOOT_GUARD_KMH = 0.25f;
+            private const float OVERSPEED_BAND_KMH = 2f;
+            private const float OVERSPEED_FULL_RANGE_KMH = 18f;
+            private const float PULSE_HIGH_BASE_SEC = 4f;
+            private const float PULSE_LOW_BASE_SEC = 3f;
+            private const float PULSE_LOW_TIMEOUT_MULTIPLIER = 3f;
+            private const float MIN_BRAKE_AT_LOW_OVERSPEED = 0.55f;
+            private const float PRE_OVERHEAT_START_C = 450f;
+            private const float OVERHEAT_ONSET_C = 600f;
+
+            private bool _active;
+            private bool _inPulseHigh;
+            private float _timer;
+
+            public float Update(float deltaTime, float overspeedKmh, float overheatingPct, bool waitForCylinderRelease, float brakeCylinderPressure, float brakeTempC)
+            {
+                if (overspeedKmh <= UNDERSHOOT_GUARD_KMH)
+                {
+                    Clear();
+                    return 0f;
+                }
+
+                if (!_active)
+                {
+                    _active = true;
+                    _inPulseHigh = true;
+                    _timer = 0f;
+                }
+
+                float heatFade = Mathf.Clamp01((brakeTempC - PRE_OVERHEAT_START_C) / (OVERHEAT_ONSET_C - PRE_OVERHEAT_START_C));
+                float highDuration = Mathf.Max(2f, PULSE_HIGH_BASE_SEC * (1f - overheatingPct * 0.5f) * (1f - heatFade * 0.25f));
+                float lowDuration = Mathf.Max(2f, PULSE_LOW_BASE_SEC * (1f + overheatingPct * 2f) * (1f + heatFade));
+                float lowTimeout = lowDuration * PULSE_LOW_TIMEOUT_MULTIPLIER;
+
+                _timer += deltaTime;
+                if (_inPulseHigh)
+                {
+                    if (_timer >= highDuration)
+                    {
+                        _inPulseHigh = false;
+                        _timer = 0f;
+                    }
+                }
+                else
+                {
+                    bool cylinderReleased = !waitForCylinderRelease || brakeCylinderPressure <= 0.1f;
+                    if ((_timer >= lowDuration && cylinderReleased) || _timer >= lowTimeout)
+                    {
+                        _inPulseHigh = true;
+                        _timer = 0f;
+                    }
+                }
+
+                if (!_inPulseHigh)
+                    return 0f;
+
+                float heatForceScale = 1f;
+                if (overheatingPct > 0.4f)
+                    heatForceScale = overheatingPct > 0.7f ? 0.4f : 1f - (overheatingPct - 0.4f) / 0.3f * 0.6f;
+
+                float overspeedFactor = Mathf.Clamp01((overspeedKmh - OVERSPEED_BAND_KMH) / OVERSPEED_FULL_RANGE_KMH);
+                return (MIN_BRAKE_AT_LOW_OVERSPEED + (1f - MIN_BRAKE_AT_LOW_OVERSPEED) * overspeedFactor) * heatForceScale;
+            }
+
+            public void Clear()
+            {
+                _active = false;
+                _inPulseHigh = false;
+                _timer = 0f;
+            }
         }
 
         private float GetLocoTemperature()
@@ -768,6 +914,7 @@ namespace DVRouteManager
             // ── Full stop ────────────────────────────────────────────────────
             if (absTarget < Mathf.Epsilon)
             {
+                _steamBrakeController.Clear();
                 SteamSetBrake(1f);
                 SteamSetRegulatorSmooth(0f);
                 SteamSetCutoffSmooth(0.5f, dt);
@@ -780,9 +927,8 @@ namespace DVRouteManager
             {
                 _steamRecoveringToTarget = false;
 
-                float overshootFactor = Mathf.Clamp01((speedDiff - 2f) / 10f);
-                float brakeVal = Mathf.Lerp(STEAM_SERVICE_BRAKE_MIN, STEAM_SERVICE_BRAKE_MAX, overshootFactor);
-                brakeVal *= GetBrakeHeatScale();
+                BrakeHeatState heat = GetBrakeHeatState();
+                float brakeVal = _steamBrakeController.Update(dt, speedDiff, heat.OverheatPercentage, true, GetBrakeCylinderPressure(), heat.TemperatureC);
                 SteamSetBrakeSmooth(brakeVal, dt);
                 SteamSetRegulatorSmooth(0f);
                 // Cutoff to neutral while braking — avoids steam fighting brakes
@@ -791,6 +937,7 @@ namespace DVRouteManager
             else
             {
                 // ── Not braking ───────────────────────────────────────────────
+                _steamBrakeController.Clear();
                 SteamSetBrakeSmooth(0f, dt);
 
                 if (absSpeed < absTarget - 2.0f)
@@ -1101,6 +1248,8 @@ namespace DVRouteManager
         {
             running = false;
             TargetSpeed = 0f;
+            _steamBrakeController.Clear();
+            _nonSelfLappingBrakeController.Clear();
             var simOverrider = trainCar?.SimController?.controlsOverrider;
             simOverrider?.Throttle?.Set(0f);
 
