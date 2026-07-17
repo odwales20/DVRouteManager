@@ -55,6 +55,10 @@ namespace DVRouteManager
         private const float STEAM_BRAKE_RELEASE_RATE = 0.35f;
         private const float NON_SELF_LAPPING_BRAKE_APPLY_RATE = 0.18f;
         private const float NON_SELF_LAPPING_BRAKE_RELEASE_RATE = 0.30f;
+        private const float BRAKE_HEAT_SLOWDOWN_START_C = 350f;
+        private const float BRAKE_HEAT_SLOWDOWN_FULL_C = 600f;
+        private const float BRAKE_HEAT_MAX_TARGET_REDUCTION = 15f;
+        private const float BRAKE_HEAT_MAX_TARGET_FACTOR = 0.75f;
         private const float DE2_MAX_AMPS = 750f;
         private const float DE6_MAX_AMPS = 1450f;
         private const float DM3_MIN_TORQUE = 35000f;
@@ -187,13 +191,15 @@ namespace DVRouteManager
                     return targetAcceleration; // PID skipped during shift
             }
 
+            float effectiveTargetSpeed = GetBrakeHeatAdjustedTargetSpeed(TargetSpeed);
+
             // ── Temperature: back off throttle when overheating ──────────────
             var tempState = remoteControl.GetEngineTemperatureState(false);
             bool tempCritical = tempState.HasFlag(MultipleUnitStateObserver.TemperatureState.Critical);
             bool tempWarning  = tempState.HasFlag(MultipleUnitStateObserver.TemperatureState.Warning);
 
             // ── PID ──────────────────────────────────────────────────────────
-            float error = TargetSpeed - speed;
+            float error = effectiveTargetSpeed - speed;
             integral += error * dt;
 
             if (error < 0)
@@ -212,7 +218,7 @@ namespace DVRouteManager
             if (acceleration > targetAcceleration)
                 controlValue = 0f;
 
-            if (TargetSpeed < Mathf.Epsilon)
+            if (effectiveTargetSpeed < Mathf.Epsilon)
                 controlValue = -20f;
 
             // Temperature limiting: Critical → force reduce; Warning → no increase
@@ -243,7 +249,7 @@ namespace DVRouteManager
                 // Cap throttle at low speed to prevent traction motor overload (DE4 etc.)
                 if (speed < 5f)  newThrottle = Mathf.Min(newThrottle, 0.25f);
                 else if (speed < 15f) newThrottle = Mathf.Min(newThrottle, 0.55f);
-                newThrottle = ApplyThrottleProtection(newThrottle, simOverrider.Throttle.Value, speed, acceleration, dt);
+                newThrottle = ApplyThrottleProtection(newThrottle, simOverrider.Throttle.Value, speed, acceleration, dt, effectiveTargetSpeed);
                 simOverrider.Throttle.Set(newThrottle);
             }
             else
@@ -253,8 +259,8 @@ namespace DVRouteManager
 
             // ── Brake: proportional to overspeed ─────────────────────────────
             if (simOverrider?.Brake != null)
-                ApplyPredictiveBrake(simOverrider, speed, acceleration, error, dt);
-            else if (error < -3.0f || TargetSpeed < Mathf.Epsilon)
+                ApplyPredictiveBrake(simOverrider, speed, acceleration, error, dt, effectiveTargetSpeed);
+            else if (error < -3.0f || effectiveTargetSpeed < Mathf.Epsilon)
                 remoteControl.UpdateBrake(0.3f * error * -1.0f * dt);
             else if (remoteControl.GetTargetBrake() > Mathf.Epsilon)
                 remoteControl.UpdateBrake(-30.0f * dt);
@@ -262,7 +268,25 @@ namespace DVRouteManager
             return targetAcceleration;
         }
 
-        private float ApplyThrottleProtection(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationKmhS, float dt)
+        private float GetBrakeHeatAdjustedTargetSpeed(float requestedTargetSpeed)
+        {
+            float absTarget = Mathf.Abs(requestedTargetSpeed);
+            if (absTarget < Mathf.Epsilon)
+                return requestedTargetSpeed;
+
+            BrakeHeatState heat = GetBrakeHeatState();
+            float tempFactor = Mathf.Clamp01((heat.TemperatureC - BRAKE_HEAT_SLOWDOWN_START_C) / (BRAKE_HEAT_SLOWDOWN_FULL_C - BRAKE_HEAT_SLOWDOWN_START_C));
+            float overheatFactor = Mathf.Clamp01((heat.OverheatPercentage - 0.2f) / 0.6f);
+            float heatFactor = Mathf.Max(tempFactor, overheatFactor);
+            if (heatFactor <= 0f)
+                return requestedTargetSpeed;
+
+            float reduction = Mathf.Min(BRAKE_HEAT_MAX_TARGET_REDUCTION, absTarget * (1f - BRAKE_HEAT_MAX_TARGET_FACTOR)) * heatFactor;
+            float adjustedAbs = Mathf.Max(5f, absTarget - reduction);
+            return adjustedAbs * Mathf.Sign(requestedTargetSpeed);
+        }
+
+        private float ApplyThrottleProtection(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationKmhS, float dt, float effectiveTargetSpeed)
         {
             float cappedThrottle = requestedThrottle;
             float temp = GetLocoTemperature();
@@ -301,7 +325,7 @@ namespace DVRouteManager
 
             if (reduceThrottle)
                 cappedThrottle = Mathf.Min(cappedThrottle, Mathf.Max(0f, currentThrottle - THROTTLE_NOTCH));
-            else if (_isDM3 && ShouldAddDm3HillClimbThrottle(cappedThrottle, currentThrottle, speedKmh, accelerationMs2, projectedTemp))
+            else if (_isDM3 && ShouldAddDm3HillClimbThrottle(cappedThrottle, currentThrottle, speedKmh, accelerationMs2, projectedTemp, effectiveTargetSpeed))
                 cappedThrottle = Mathf.Max(cappedThrottle, Mathf.Min(1f, currentThrottle + THROTTLE_NOTCH));
 
             if (IsDE6Like())
@@ -320,7 +344,7 @@ namespace DVRouteManager
             return id.Contains("DE6");
         }
 
-        private bool ShouldAddDm3HillClimbThrottle(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationMs2, float projectedTemp)
+        private bool ShouldAddDm3HillClimbThrottle(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationMs2, float projectedTemp, float effectiveTargetSpeed)
         {
             if (requestedThrottle <= currentThrottle || currentThrottle >= 1f)
                 return false;
@@ -333,10 +357,10 @@ namespace DVRouteManager
             if (torque <= 0f)
                 return false;
 
-            return torque < DM3_MIN_TORQUE && accelerationMs2 < 0.05f && speedKmh < TargetSpeed - 1f;
+            return torque < DM3_MIN_TORQUE && accelerationMs2 < 0.05f && speedKmh < effectiveTargetSpeed - 1f;
         }
 
-        private void ApplyPredictiveBrake(BaseControlsOverrider simOverrider, float speedKmh, float accelerationKmhS, float speedError, float dt)
+        private void ApplyPredictiveBrake(BaseControlsOverrider simOverrider, float speedKmh, float accelerationKmhS, float speedError, float dt, float effectiveTargetSpeed)
         {
             bool lightEngine = trainCar?.trainset?.cars != null && trainCar.trainset.cars.Count == 1;
             float trainBrake = simOverrider.Brake?.Value ?? 0f;
@@ -344,7 +368,7 @@ namespace DVRouteManager
             float activeBrake = lightEngine ? independentBrake : trainBrake;
             float brakeTarget = 0f;
 
-            if (TargetSpeed < Mathf.Epsilon)
+            if (effectiveTargetSpeed < Mathf.Epsilon)
             {
                 _nonSelfLappingBrakeController.Clear();
                 brakeTarget = 1f;
@@ -352,12 +376,12 @@ namespace DVRouteManager
             else if (!lightEngine && IsNonSelfLappingTrainBrake(simOverrider))
             {
                 float projectedSpeed = speedKmh + accelerationKmhS * PROTECTION_BRAKING_TIME;
-                bool projectedOverspeed = speedKmh > TargetSpeed - 1f && projectedSpeed > TargetSpeed + PROTECTION_BRAKE_SPEED_BAND;
+                bool projectedOverspeed = speedKmh > effectiveTargetSpeed - 1f && projectedSpeed > effectiveTargetSpeed + PROTECTION_BRAKE_SPEED_BAND;
                 bool actualOverspeed = speedError < -3f;
 
                 if (projectedOverspeed || actualOverspeed)
                 {
-                    float overspeed = Mathf.Max(0f, Mathf.Max(projectedSpeed - TargetSpeed, -speedError - 3f));
+                    float overspeed = Mathf.Max(0f, Mathf.Max(projectedSpeed - effectiveTargetSpeed, -speedError - 3f));
                     BrakeHeatState heat = GetBrakeHeatState();
                     brakeTarget = _nonSelfLappingBrakeController.Update(dt, overspeed, heat.OverheatPercentage, true, GetBrakeCylinderPressure(), heat.TemperatureC);
                 }
@@ -375,17 +399,17 @@ namespace DVRouteManager
             {
                 _nonSelfLappingBrakeController.Clear();
                 float projectedSpeed = speedKmh + accelerationKmhS * PROTECTION_BRAKING_TIME;
-                bool projectedOverspeed = speedKmh > TargetSpeed - 1f && projectedSpeed > TargetSpeed + PROTECTION_BRAKE_SPEED_BAND;
+                bool projectedOverspeed = speedKmh > effectiveTargetSpeed - 1f && projectedSpeed > effectiveTargetSpeed + PROTECTION_BRAKE_SPEED_BAND;
                 bool actualOverspeed = speedError < -3f;
 
                 if (IsDE6Like())
                 {
                     if (_de6BrakeProtectionActive)
-                        _de6BrakeProtectionActive = speedError < -DE6_BRAKE_RELEASE_BAND || projectedSpeed > TargetSpeed + DE6_BRAKE_RELEASE_BAND;
+                        _de6BrakeProtectionActive = speedError < -DE6_BRAKE_RELEASE_BAND || projectedSpeed > effectiveTargetSpeed + DE6_BRAKE_RELEASE_BAND;
                     else
                         _de6BrakeProtectionActive = projectedOverspeed || actualOverspeed;
 
-                    projectedOverspeed = _de6BrakeProtectionActive && projectedSpeed > TargetSpeed + DE6_BRAKE_RELEASE_BAND;
+                    projectedOverspeed = _de6BrakeProtectionActive && projectedSpeed > effectiveTargetSpeed + DE6_BRAKE_RELEASE_BAND;
                     actualOverspeed = _de6BrakeProtectionActive && speedError < -DE6_BRAKE_RELEASE_BAND;
                 }
 
@@ -905,7 +929,7 @@ namespace DVRouteManager
 
             float signedTarget = GetSteamSignedTargetSpeed();
             bool forward  = signedTarget >= 0f;
-            float absTarget = Mathf.Abs(signedTarget);
+            float absTarget = Mathf.Abs(GetBrakeHeatAdjustedTargetSpeed(signedTarget));
             float absSpeed  = Mathf.Abs(speed);
 
             float pressure    = GetSteamChestPressure();
