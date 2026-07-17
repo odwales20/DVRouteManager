@@ -13,7 +13,7 @@ namespace DVRouteManager
 {
     public class RouteTracker : IDisposable
     {
-        private const double TRAIN_END_CLEARANCE_BUFFER = 8.0;
+        private const double TRAIN_END_CLEARANCE_BUFFER = 25.0;
         private const double MIN_DESTINATION_NOSE_ROLL_IN = 25.0;
         private const double DESTINATION_END_CLEARANCE_BUFFER = 8.0;
 
@@ -118,7 +118,37 @@ namespace DVRouteManager
             get
             {
                 return TrainTailDistancePastDestinationStart >= 0.0
-                    && TrainNoseDistancePastDestinationStart >= DestinationNoseRollInRequired;
+                    && TrainNoseDistancePastDestinationStart >= DestinationNoseRollInRequired
+                    && AreAllTrainCarsOnDestinationTrack;
+            }
+        }
+
+        public bool AreAllTrainCarsOnDestinationTrack
+        {
+            get
+            {
+                var destinationTrack = CurrentTask?.DestinationTrack ?? Route?.LastTrack?.LogicTrack();
+                if (Trainset?.cars == null || destinationTrack == null)
+                    return false;
+
+                foreach (TrainCar car in Trainset.cars)
+                {
+                    if (car?.Bogies == null || !car.Bogies.Any())
+                        return false;
+
+                    foreach (Bogie bogie in car.Bogies)
+                    {
+                        if (bogie == null || bogie.HasDerailed)
+                            continue;
+                        if (bogie.track?.LogicTrack() != destinationTrack)
+                            return false;
+                    }
+
+                    if (!car.Bogies.Any(b => b != null && !b.HasDerailed))
+                        return false;
+                }
+
+                return true;
             }
         }
 

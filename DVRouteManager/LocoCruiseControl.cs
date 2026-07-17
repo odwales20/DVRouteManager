@@ -51,10 +51,8 @@ namespace DVRouteManager
         private const float DE6_BRAKE_RELEASE_RATE = 0.10f;
         private const float DE6_BRAKE_UNDER_TARGET_RELEASE_RATE = 0.55f;
         private const float DE6_BRAKE_RELEASE_BAND = 1.0f;
-        private const float STEAM_BRAKE_APPLY_RATE = 0.22f;
-        private const float STEAM_BRAKE_RELEASE_RATE = 0.35f;
-        private const float NON_SELF_LAPPING_BRAKE_APPLY_RATE = 0.18f;
-        private const float NON_SELF_LAPPING_BRAKE_RELEASE_RATE = 0.30f;
+        private const float NON_SELF_LAPPING_BRAKE_APPLY_MIN = 0.55f;
+        private const float NON_SELF_LAPPING_BRAKE_RELEASE_MAX = 0.10f;
         private const float BRAKE_HEAT_SLOWDOWN_START_C = 350f;
         private const float BRAKE_HEAT_SLOWDOWN_FULL_C = 600f;
         private const float BRAKE_HEAT_MAX_TARGET_REDUCTION = 15f;
@@ -391,9 +389,7 @@ namespace DVRouteManager
                     brakeTarget = Mathf.Max(0f, activeBrake - PROTECTION_BRAKE_RELEASE_FACTOR * activeBrake);
                 }
 
-                float maxApply = NON_SELF_LAPPING_BRAKE_APPLY_RATE * dt;
-                float maxRelease = NON_SELF_LAPPING_BRAKE_RELEASE_RATE * dt;
-                brakeTarget = Mathf.Clamp(brakeTarget, activeBrake - maxRelease, activeBrake + maxApply);
+                brakeTarget = SnapNonSelfLappingBrakeTarget(brakeTarget);
             }
             else
             {
@@ -451,6 +447,15 @@ namespace DVRouteManager
                 return false;
 
             return brake.NotchCount > 0 && brake.NotchCount <= 4;
+        }
+
+        private float SnapNonSelfLappingBrakeTarget(float target)
+        {
+            if (target >= 0.99f)
+                return 1f;
+            if (target > NON_SELF_LAPPING_BRAKE_RELEASE_MAX)
+                return Mathf.Max(NON_SELF_LAPPING_BRAKE_APPLY_MIN, target);
+            return 0f;
         }
 
         private BrakeHeatState GetBrakeHeatState()
@@ -953,7 +958,7 @@ namespace DVRouteManager
 
                 BrakeHeatState heat = GetBrakeHeatState();
                 float brakeVal = _steamBrakeController.Update(dt, speedDiff, heat.OverheatPercentage, true, GetBrakeCylinderPressure(), heat.TemperatureC);
-                SteamSetBrakeSmooth(brakeVal, dt);
+                SteamSetBrake(brakeVal);
                 SteamSetRegulatorSmooth(0f);
                 // Cutoff to neutral while braking — avoids steam fighting brakes
                 SteamSetCutoffSmooth(forward ? 0.5f : 0.49f, dt);
@@ -962,7 +967,7 @@ namespace DVRouteManager
             {
                 // ── Not braking ───────────────────────────────────────────────
                 _steamBrakeController.Clear();
-                SteamSetBrakeSmooth(0f, dt);
+                SteamSetBrake(0f);
 
                 if (absSpeed < absTarget - 2.0f)
                     _steamRecoveringToTarget = true;
@@ -1085,15 +1090,7 @@ namespace DVRouteManager
 
         private void SteamSetBrake(float value)
         {
-            _steamBrakeTarget = value;
-            _steamOverrider?.Brake?.Set(value);
-        }
-
-        private void SteamSetBrakeSmooth(float target, float dt)
-        {
-            target = Mathf.Clamp01(target);
-            float rate = target > _steamBrakeTarget ? STEAM_BRAKE_APPLY_RATE : STEAM_BRAKE_RELEASE_RATE;
-            _steamBrakeTarget = Mathf.MoveTowards(_steamBrakeTarget, target, rate * dt);
+            _steamBrakeTarget = SnapNonSelfLappingBrakeTarget(value);
             _steamOverrider?.Brake?.Set(_steamBrakeTarget);
         }
 
