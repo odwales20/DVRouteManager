@@ -55,6 +55,10 @@ namespace DVRouteManager
         private const float STEAM_SERVICE_BRAKE_MAX = 0.55f;
         private const float STEAM_BRAKE_APPLY_RATE = 0.22f;
         private const float STEAM_BRAKE_RELEASE_RATE = 0.35f;
+        private const float BRAKE_HEAT_WARN_TEMP = 350f;
+        private const float BRAKE_HEAT_CRITICAL_TEMP = 525f;
+        private const float BRAKE_HEAT_WARN_PERCENT = 0.35f;
+        private const float BRAKE_HEAT_CRITICAL_PERCENT = 0.85f;
         private const float NON_SELF_LAPPING_SERVICE_BRAKE_MIN = 0.18f;
         private const float NON_SELF_LAPPING_SERVICE_BRAKE_MAX = 0.55f;
         private const float NON_SELF_LAPPING_BRAKE_APPLY_RATE = 0.18f;
@@ -351,6 +355,7 @@ namespace DVRouteManager
                 {
                     float overspeed = Mathf.Max(0f, Mathf.Max(projectedSpeed - TargetSpeed, -speedError - 3f));
                     brakeTarget = Mathf.Lerp(NON_SELF_LAPPING_SERVICE_BRAKE_MIN, NON_SELF_LAPPING_SERVICE_BRAKE_MAX, Mathf.Clamp01(overspeed / 12f));
+                    brakeTarget *= GetBrakeHeatScale();
                 }
                 else
                 {
@@ -416,6 +421,37 @@ namespace DVRouteManager
                 return false;
 
             return brake.NotchCount > 0 && brake.NotchCount <= 4;
+        }
+
+        private float GetBrakeHeatScale()
+        {
+            float maxTemp = 25f;
+            float maxOverheat = 0f;
+
+            try
+            {
+                var cars = trainCar?.trainset?.cars;
+                if (cars != null)
+                {
+                    foreach (TrainCar car in cars)
+                    {
+                        var heat = car?.brakeSystem?.heatController;
+                        if (heat == null)
+                            continue;
+
+                        maxTemp = Mathf.Max(maxTemp, heat.temperature);
+                        maxOverheat = Mathf.Max(maxOverheat, heat.overheatPercentage);
+                    }
+                }
+            }
+            catch
+            {
+                return 1f;
+            }
+
+            float tempScale = Mathf.Lerp(1f, 0f, Mathf.InverseLerp(BRAKE_HEAT_WARN_TEMP, BRAKE_HEAT_CRITICAL_TEMP, maxTemp));
+            float overheatScale = Mathf.Lerp(1f, 0f, Mathf.InverseLerp(BRAKE_HEAT_WARN_PERCENT, BRAKE_HEAT_CRITICAL_PERCENT, maxOverheat));
+            return Mathf.Min(tempScale, overheatScale);
         }
 
         private float GetLocoTemperature()
@@ -746,6 +782,7 @@ namespace DVRouteManager
 
                 float overshootFactor = Mathf.Clamp01((speedDiff - 2f) / 10f);
                 float brakeVal = Mathf.Lerp(STEAM_SERVICE_BRAKE_MIN, STEAM_SERVICE_BRAKE_MAX, overshootFactor);
+                brakeVal *= GetBrakeHeatScale();
                 SteamSetBrakeSmooth(brakeVal, dt);
                 SteamSetRegulatorSmooth(0f);
                 // Cutoff to neutral while braking — avoids steam fighting brakes
