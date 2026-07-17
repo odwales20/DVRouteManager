@@ -55,10 +55,10 @@ namespace DVRouteManager
         private const float STEAM_SERVICE_BRAKE_MAX = 0.55f;
         private const float STEAM_BRAKE_APPLY_RATE = 0.22f;
         private const float STEAM_BRAKE_RELEASE_RATE = 0.35f;
-        private const float DM3_SERVICE_BRAKE_MIN = 0.18f;
-        private const float DM3_SERVICE_BRAKE_MAX = 0.55f;
-        private const float DM3_BRAKE_APPLY_RATE = 0.18f;
-        private const float DM3_BRAKE_RELEASE_RATE = 0.30f;
+        private const float NON_SELF_LAPPING_SERVICE_BRAKE_MIN = 0.18f;
+        private const float NON_SELF_LAPPING_SERVICE_BRAKE_MAX = 0.55f;
+        private const float NON_SELF_LAPPING_BRAKE_APPLY_RATE = 0.18f;
+        private const float NON_SELF_LAPPING_BRAKE_RELEASE_RATE = 0.30f;
         private const float DE2_MAX_AMPS = 750f;
         private const float DE6_MAX_AMPS = 1450f;
         private const float DM3_MIN_TORQUE = 35000f;
@@ -341,7 +341,7 @@ namespace DVRouteManager
             {
                 brakeTarget = 1f;
             }
-            else if (_isDM3 && !lightEngine)
+            else if (!lightEngine && IsNonSelfLappingTrainBrake(simOverrider))
             {
                 float projectedSpeed = speedKmh + accelerationKmhS * PROTECTION_BRAKING_TIME;
                 bool projectedOverspeed = speedKmh > TargetSpeed - 1f && projectedSpeed > TargetSpeed + PROTECTION_BRAKE_SPEED_BAND;
@@ -350,15 +350,15 @@ namespace DVRouteManager
                 if (projectedOverspeed || actualOverspeed)
                 {
                     float overspeed = Mathf.Max(0f, Mathf.Max(projectedSpeed - TargetSpeed, -speedError - 3f));
-                    brakeTarget = Mathf.Lerp(DM3_SERVICE_BRAKE_MIN, DM3_SERVICE_BRAKE_MAX, Mathf.Clamp01(overspeed / 12f));
+                    brakeTarget = Mathf.Lerp(NON_SELF_LAPPING_SERVICE_BRAKE_MIN, NON_SELF_LAPPING_SERVICE_BRAKE_MAX, Mathf.Clamp01(overspeed / 12f));
                 }
                 else
                 {
                     brakeTarget = Mathf.Max(0f, activeBrake - PROTECTION_BRAKE_RELEASE_FACTOR * activeBrake);
                 }
 
-                float maxApply = DM3_BRAKE_APPLY_RATE * dt;
-                float maxRelease = DM3_BRAKE_RELEASE_RATE * dt;
+                float maxApply = NON_SELF_LAPPING_BRAKE_APPLY_RATE * dt;
+                float maxRelease = NON_SELF_LAPPING_BRAKE_RELEASE_RATE * dt;
                 brakeTarget = Mathf.Clamp(brakeTarget, activeBrake - maxRelease, activeBrake + maxApply);
             }
             else
@@ -404,6 +404,18 @@ namespace DVRouteManager
                 simOverrider.Brake.Set(brakeTarget);
                 simOverrider.IndependentBrake?.Set(0f);
             }
+        }
+
+        private bool IsNonSelfLappingTrainBrake(BaseControlsOverrider simOverrider)
+        {
+            if (_isDM3)
+                return true;
+
+            var brake = simOverrider?.Brake;
+            if (brake == null || !brake.IsNotched)
+                return false;
+
+            return brake.NotchCount > 0 && brake.NotchCount <= 4;
         }
 
         private float GetLocoTemperature()
