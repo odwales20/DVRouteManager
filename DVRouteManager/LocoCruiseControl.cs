@@ -413,7 +413,7 @@ namespace DVRouteManager
                 else
                 {
                     _nonSelfLappingBrakeController.Clear();
-                    brakeTarget = Mathf.Max(0f, activeBrake - PROTECTION_BRAKE_RELEASE_FACTOR * activeBrake);
+                    brakeTarget = 0f;
                 }
 
                 brakeTarget = SnapNonSelfLappingBrakeTarget(brakeTarget);

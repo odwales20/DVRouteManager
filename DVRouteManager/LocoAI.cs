@@ -1001,7 +1001,7 @@ namespace DVRouteManager
 
             for (int i = 0; i < level + 1; i++)
             {
-                remoteControl.UpdateBrake(-1.0f);
+                remoteControl.UpdateBrake(IsDM3() ? -10.0f : -1.0f);
                 yield return new WaitForSeconds(0.1f);
             }
         }
