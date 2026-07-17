@@ -344,7 +344,29 @@ namespace DVRouteManager
 
         private bool IsLightEngine()
         {
-            return trainCar?.trainset?.cars != null && trainCar.trainset.cars.Count == 1;
+            if (trainCar?.trainset?.cars == null)
+                return false;
+
+            if (!_isSteam)
+                return trainCar.trainset.cars.Count == 1;
+
+            foreach (TrainCar car in trainCar.trainset.cars)
+            {
+                if (car == null || car == trainCar)
+                    continue;
+                if (!IsTenderCar(car))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsTenderCar(TrainCar car)
+        {
+            string id = (car?.carLivery?.parentType?.id ?? "") + " " +
+                (car?.carLivery?.id ?? "") + " " +
+                (car?.logicCar?.ID ?? "");
+            return id.IndexOf("Tender", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private bool ShouldAddDm3HillClimbThrottle(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationMs2, float projectedTemp, float effectiveTargetSpeed)
