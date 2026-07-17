@@ -51,6 +51,10 @@ namespace DVRouteManager
         private const float DE6_BRAKE_RELEASE_RATE = 0.10f;
         private const float DE6_BRAKE_UNDER_TARGET_RELEASE_RATE = 0.55f;
         private const float DE6_BRAKE_RELEASE_BAND = 1.0f;
+        private const float STEAM_SERVICE_BRAKE_MIN = 0.18f;
+        private const float STEAM_SERVICE_BRAKE_MAX = 0.55f;
+        private const float STEAM_BRAKE_APPLY_RATE = 0.22f;
+        private const float STEAM_BRAKE_RELEASE_RATE = 0.35f;
         private const float DE2_MAX_AMPS = 750f;
         private const float DE6_MAX_AMPS = 1450f;
         private const float DM3_MIN_TORQUE = 35000f;
@@ -77,11 +81,6 @@ namespace DVRouteManager
         private float _steamCutoff         = 0.5f;
         private float _steamBrakeTarget    = 0f;
         private float _steamLockedCutoffDirection = 0f;
-
-        // Pulse-braking state
-        private bool  _steamPulseBraking   = false;
-        private float _steamPulseTimer     = 0f;
-        private bool  _steamPulseHigh      = false;
 
         // Averaged steam-chest pressure (sampled every 0.1 s, window = 10)
         private readonly Queue<float> _steamPressureSamples = new Queue<float>();
@@ -686,7 +685,7 @@ namespace DVRouteManager
         // Mirrors the algorithm from SteamCruiseControl mod's CruiseControlAI:
         //   - Direct absolute Set() on regulator, cutoff, brake (no PID)
         //   - Pressure-aware cutoff: reduce steam admission as chest pressure rises
-        //   - Pulse braking: on 2.5 s / off 1.5 s cycle when overspeeding
+        //   - Smooth capped service braking when overspeeding
         private float MaintainSpeedSteam(float dt, float speed)
         {
             if (_steamOverrider == null) return 0f;
@@ -702,7 +701,6 @@ namespace DVRouteManager
             // ── Full stop ────────────────────────────────────────────────────
             if (absTarget < Mathf.Epsilon)
             {
-                _steamPulseBraking = false;
                 SteamSetBrake(1f);
                 SteamSetRegulatorSmooth(0f);
                 SteamSetCutoffSmooth(0.5f, dt);
@@ -714,33 +712,10 @@ namespace DVRouteManager
             if (speedDiff > 2.0f)
             {
                 _steamRecoveringToTarget = false;
-                // ── Pulse braking ─────────────────────────────────────────────
-                if (!_steamPulseBraking)
-                {
-                    _steamPulseBraking = true;
-                    _steamPulseHigh    = true;
-                    _steamPulseTimer   = 0f;
-                }
 
-                _steamPulseTimer += dt;
-                float overshootFactor = Mathf.Clamp01(speedDiff / 5f);
-
-                const float PULSE_HIGH_DURATION = 2.5f;
-                const float PULSE_LOW_DURATION  = 1.5f;
-
-                if (_steamPulseHigh)
-                {
-                    if (_steamPulseTimer >= PULSE_HIGH_DURATION)
-                    { _steamPulseHigh = false; _steamPulseTimer = 0f; }
-                }
-                else
-                {
-                    if (_steamPulseTimer >= PULSE_LOW_DURATION)
-                    { _steamPulseHigh = true; _steamPulseTimer = 0f; }
-                }
-
-                float brakeVal = _steamPulseHigh ? Mathf.Lerp(0.7f, 1f, overshootFactor) : 0f;
-                SteamSetBrake(brakeVal);
+                float overshootFactor = Mathf.Clamp01((speedDiff - 2f) / 10f);
+                float brakeVal = Mathf.Lerp(STEAM_SERVICE_BRAKE_MIN, STEAM_SERVICE_BRAKE_MAX, overshootFactor);
+                SteamSetBrakeSmooth(brakeVal, dt);
                 SteamSetRegulatorSmooth(0f);
                 // Cutoff to neutral while braking — avoids steam fighting brakes
                 SteamSetCutoffSmooth(forward ? 0.5f : 0.49f, dt);
@@ -748,9 +723,7 @@ namespace DVRouteManager
             else
             {
                 // ── Not braking ───────────────────────────────────────────────
-                _steamPulseBraking = false;
-                _steamPulseHigh    = false;
-                SteamSetBrake(0f);
+                SteamSetBrakeSmooth(0f, dt);
 
                 if (absSpeed < absTarget - 2.0f)
                     _steamRecoveringToTarget = true;
@@ -840,8 +813,6 @@ namespace DVRouteManager
             if (!_isSteam || _steamOverrider?.Reverser == null)
                 return;
 
-            _steamPulseBraking = false;
-            _steamPulseHigh = false;
             _steamRecoveringToTarget = true;
             _steamLockedCutoffDirection = forward ? 1f : -1f;
             _steamCutoff = forward ? STEAM_CUTOFF_FORWARD_MIN : STEAM_CUTOFF_REVERSE_MAX;
@@ -877,6 +848,14 @@ namespace DVRouteManager
         {
             _steamBrakeTarget = value;
             _steamOverrider?.Brake?.Set(value);
+        }
+
+        private void SteamSetBrakeSmooth(float target, float dt)
+        {
+            target = Mathf.Clamp01(target);
+            float rate = target > _steamBrakeTarget ? STEAM_BRAKE_APPLY_RATE : STEAM_BRAKE_RELEASE_RATE;
+            _steamBrakeTarget = Mathf.MoveTowards(_steamBrakeTarget, target, rate * dt);
+            _steamOverrider?.Brake?.Set(_steamBrakeTarget);
         }
 
         private float UpdateSteamPressureAvg(float currentPressure, float dt)
@@ -1060,7 +1039,6 @@ namespace DVRouteManager
             if (_isSteam && _steamOverrider != null)
             {
                 _steamRegulator = 0f;
-                _steamPulseBraking = false;
                 _steamRecoveringToTarget = false;
                 _steamLockedCutoffDirection = 0f;
                 _steamOverrider.Throttle?.Set(0f);
