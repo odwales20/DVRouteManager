@@ -342,6 +342,11 @@ namespace DVRouteManager
             return id.Contains("DE6");
         }
 
+        private bool IsLightEngine()
+        {
+            return trainCar?.trainset?.cars != null && trainCar.trainset.cars.Count == 1;
+        }
+
         private bool ShouldAddDm3HillClimbThrottle(float requestedThrottle, float currentThrottle, float speedKmh, float accelerationMs2, float projectedTemp, float effectiveTargetSpeed)
         {
             if (requestedThrottle <= currentThrottle || currentThrottle >= 1f)
@@ -360,7 +365,7 @@ namespace DVRouteManager
 
         private void ApplyPredictiveBrake(BaseControlsOverrider simOverrider, float speedKmh, float accelerationKmhS, float speedError, float dt, float effectiveTargetSpeed)
         {
-            bool lightEngine = trainCar?.trainset?.cars != null && trainCar.trainset.cars.Count == 1;
+            bool lightEngine = IsLightEngine();
             float trainBrake = simOverrider.Brake?.Value ?? 0f;
             float independentBrake = simOverrider.IndependentBrake?.Value ?? 0f;
             float activeBrake = lightEngine ? independentBrake : trainBrake;
@@ -1091,7 +1096,16 @@ namespace DVRouteManager
         private void SteamSetBrake(float value)
         {
             _steamBrakeTarget = SnapNonSelfLappingBrakeTarget(value);
-            _steamOverrider?.Brake?.Set(_steamBrakeTarget);
+            if (IsLightEngine() && _steamOverrider?.IndependentBrake != null)
+            {
+                _steamOverrider.Brake?.Set(0f);
+                _steamOverrider.IndependentBrake.Set(_steamBrakeTarget);
+            }
+            else
+            {
+                _steamOverrider?.Brake?.Set(_steamBrakeTarget);
+                _steamOverrider?.IndependentBrake?.Set(0f);
+            }
         }
 
         private float UpdateSteamPressureAvg(float currentPressure, float dt)
@@ -1280,7 +1294,7 @@ namespace DVRouteManager
                 _steamRecoveringToTarget = false;
                 _steamLockedCutoffDirection = 0f;
                 _steamOverrider.Throttle?.Set(0f);
-                _steamOverrider.Brake?.Set(1f);
+                SteamSetBrake(1f);
                 _steamOverrider.Reverser?.Set(0.5f);
             }
         }
