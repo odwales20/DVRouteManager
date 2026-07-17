@@ -206,14 +206,13 @@ namespace DVRouteManager
 
                 RailTrack goalTrack = RailTrackRegistryBase.RailTracks.FirstOrDefault((RailTrack track) => track?.LogicTrack().ID.FullID == args[3].String);
 
-                RouteTaskChain chain = RouteTaskChain.FromDestination(goalTrack.LogicTrack(), trainset);
-                var tracker = new RouteTracker(chain, false);
-
-
                 if (startTrack == null || goalTrack == null)
                 {
                     throw new CommandException("start track or goal track not found");
                 }
+
+                RouteTaskChain chain = RouteTaskChain.FromDestination(goalTrack.LogicTrack(), trainset);
+                var tracker = new RouteTracker(chain, false);
 
                 await FindAndSwitch(startTrack.LogicTrack(), goalTrack.LogicTrack(), Module.settings.ReversingStrategy, trainset);
 

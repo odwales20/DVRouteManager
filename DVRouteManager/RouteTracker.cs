@@ -536,7 +536,7 @@ namespace DVRouteManager
                         Terminal.Log($"Should approach reversed!!!");
                     }
 
-                    if (Route.Reverses.TryGetValue(pathData.junctionId, out junction))
+                    if (pathData.junctionId != null && Route.Reverses.TryGetValue(pathData.junctionId, out junction))
                     {
 #if DEBUG
                         Terminal.Log($"Reversal junction matched: {pathData.junctionId}");

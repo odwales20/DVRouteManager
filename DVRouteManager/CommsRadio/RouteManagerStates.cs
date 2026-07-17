@@ -1075,7 +1075,9 @@ namespace DVRouteManager.CommsRadio
 
                 Vector3 pitPos = pit.transform.position;
                 RailTrack nearest = RailTrackRegistryBase.RailTracks
-                    .Where(rt => rt != null && rt.LogicTrack() != null)
+                    .Where(rt => rt != null
+                        && rt.LogicTrack() != null
+                        && !string.IsNullOrEmpty(rt.LogicTrack().ID?.FullID))
                     .OrderBy(rt => (rt.transform.position - pitPos).sqrMagnitude)
                     .FirstOrDefault();
                 if (nearest == null) continue;
@@ -1092,6 +1094,8 @@ namespace DVRouteManager.CommsRadio
                 return new RouteManagerMessageState($"No {resourceType} station found", new RouteManagerMainMenuState());
 
             string trackId = candidates.OrderBy(c => c.score).First().track.LogicTrack().ID.FullID;
+            if (string.IsNullOrEmpty(trackId))
+                return new RouteManagerMessageState($"No routeable {resourceType} track found", new RouteManagerMainMenuState());
             Terminal.Log($"Routing to {resourceType} at {trackId}");
 
             return new RouteManagerComputingState(new[]

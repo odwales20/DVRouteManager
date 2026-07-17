@@ -54,10 +54,14 @@ namespace DVRouteManager
 
                 if (walkData.nextTrack != null && !walkData.currentTrack.CanGoToDirectly(walkData.prevTrack, walkData.nextTrack, out reversingJunction))
                 {
-                    if (reversingJunction != null)
+                    if (reversingJunction != null && walkData.junctionId != null)
                     {
                         Reverses.Add(walkData.junctionId, reversingJunction);
                         Terminal.Log($"Reversing needed on junction {walkData.junctionId}");
+                    }
+                    else if (reversingJunction != null)
+                    {
+                        Terminal.Log("Reversing needed but junction id was unavailable; skipping reverse marker");
                     }
                 }
 
@@ -166,7 +170,7 @@ namespace DVRouteManager
                     if (nextTrack == null)
                         break;
 
-                    if (Reverses.ContainsKey(junctionId))
+                    if (junctionId != null && Reverses.ContainsKey(junctionId))
                     {
                         walkData.distanceFromStart += REVERSE_SECTOR_LENGTH;
                     }
@@ -190,7 +194,8 @@ namespace DVRouteManager
             {
                 Junction reversingJunction = null;
 
-                Reverses.TryGetValue(walkData.junctionId, out reversingJunction);
+                if (walkData.junctionId != null)
+                    Reverses.TryGetValue(walkData.junctionId, out reversingJunction);
 
 
                 if (walkData.currentTrack.inJunction != null && walkData.prevTrack != null)

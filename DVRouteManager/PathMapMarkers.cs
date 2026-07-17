@@ -77,7 +77,7 @@ namespace DVRouteManager
             {
                 double length = walkData.currentTrack.LogicTrack().length;
 
-                if(route.Reverses.ContainsKey(walkData.junctionId))
+                if(walkData.junctionId != null && route.Reverses.ContainsKey(walkData.junctionId))
                 {
                     length = Route.REVERSE_SECTOR_LENGTH;
                     color = color == Color.red ? Color.green : Color.red;
