@@ -734,7 +734,7 @@ namespace DVRouteManager
                         if (!RouteTracker.IsTrainFullyInDestination)
                         {
 #if DEBUG
-                            Terminal.Log($"waiting for train tail to enter destination: {RouteTracker.TrainTailDistancePastDestinationStart:0.0}m");
+                            Terminal.Log($"waiting for train to clear destination: tail {RouteTracker.TrainTailDistancePastDestinationStart:0.0}m, nose {RouteTracker.TrainNoseDistancePastDestinationStart:0.0}/{RouteTracker.DestinationNoseRollInRequired:0.0}m");
 #endif
                         }
                         else if (speed < DESTINATION_FINAL_STOP_SPEED)

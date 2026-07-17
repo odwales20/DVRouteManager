@@ -14,6 +14,8 @@ namespace DVRouteManager
     public class RouteTracker : IDisposable
     {
         private const double TRAIN_END_CLEARANCE_BUFFER = 8.0;
+        private const double MIN_DESTINATION_NOSE_ROLL_IN = 25.0;
+        private const double DESTINATION_END_CLEARANCE_BUFFER = 8.0;
 
         public enum TrackingState
         {
@@ -86,11 +88,37 @@ namespace DVRouteManager
             }
         }
 
+        public double TrainNoseDistancePastDestinationStart
+        {
+            get
+            {
+                if (Route == null || Route.LastTrack == null)
+                    return double.NegativeInfinity;
+
+                double destinationStart = Route.Length - Route.LastTrack.LogicTrack().length;
+                return DistanceTraveled - destinationStart;
+            }
+        }
+
+        public double DestinationNoseRollInRequired
+        {
+            get
+            {
+                if (Route == null || Route.LastTrack == null)
+                    return MIN_DESTINATION_NOSE_ROLL_IN;
+
+                double destinationLength = Route.LastTrack.LogicTrack().length;
+                double availableRollIn = Math.Max(TRAIN_END_CLEARANCE_BUFFER, destinationLength - DESTINATION_END_CLEARANCE_BUFFER);
+                return Math.Min(MIN_DESTINATION_NOSE_ROLL_IN, availableRollIn);
+            }
+        }
+
         public bool IsTrainFullyInDestination
         {
             get
             {
-                return TrainTailDistancePastDestinationStart >= 0.0;
+                return TrainTailDistancePastDestinationStart >= 0.0
+                    && TrainNoseDistancePastDestinationStart >= DestinationNoseRollInRequired;
             }
         }
 
