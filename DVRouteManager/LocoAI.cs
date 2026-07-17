@@ -18,7 +18,6 @@ namespace DVRouteManager
         private const float TARGET_SPEED_DEFAULT = 20.0f;
         private const float COUPLER_APPROACH_SPEED = 5.0f;
         private const float SPEED_LIMIT_TARGET_MARGIN = 5.0f; // ~3 mph headroom under sign-derived limits
-        private const float TURNOUT_SPEED_LIMIT = 30.0f;
         private const float REVERSE_COUPLER_CLEARANCE = 12.0f;
         private const float DESTINATION_APPROACH_DISTANCE = 350.0f;
         private const float DESTINATION_STOP_BUFFER = 12.0f;
@@ -244,9 +243,11 @@ namespace DVRouteManager
             }
 
             RailTrack nextTrack = startIdx + 1 < path.Count ? path[startIdx + 1] : null;
-            if (IsTurnoutTransition(currentTrack, nextTrack, currentForward) && distAhead < lookaheadM && TURNOUT_SPEED_LIMIT < minLimit)
+            bool nextForward = nextTrack != null ? GetRouteDirection(nextTrack, startIdx + 1) : true;
+            float turnoutLimit = GetTurnoutTransitionLimit(currentTrack, nextTrack, currentForward, nextForward);
+            if (distAhead < lookaheadM && turnoutLimit < minLimit)
             {
-                minLimit = TURNOUT_SPEED_LIMIT;
+                minLimit = turnoutLimit;
 #if DEBUG
                 limitTrack = currentTrack;
                 limitSegDistTotal = distAhead;
@@ -294,9 +295,11 @@ namespace DVRouteManager
 
                 RailTrack followingTrack = i + 1 < path.Count ? path[i + 1] : null;
                 float transitionDistance = distAhead + (float)t.LogicTrack().length;
-                if (IsTurnoutTransition(t, followingTrack, routeForward) && transitionDistance < lookaheadM && TURNOUT_SPEED_LIMIT < minLimit)
+                bool followingForward = followingTrack != null ? GetRouteDirection(followingTrack, i + 1) : true;
+                turnoutLimit = GetTurnoutTransitionLimit(t, followingTrack, routeForward, followingForward);
+                if (transitionDistance < lookaheadM && turnoutLimit < minLimit)
                 {
-                    minLimit = TURNOUT_SPEED_LIMIT;
+                    minLimit = turnoutLimit;
 #if DEBUG
                     limitTrack = t;
                     limitSegDistTotal = transitionDistance;
@@ -326,17 +329,43 @@ namespace DVRouteManager
             return ApplySpeedLimitMargin(minLimit);
         }
 
-        private static bool IsTurnoutTransition(RailTrack track, RailTrack nextTrack, bool forward)
+        private static float GetTurnoutTransitionLimit(RailTrack track, RailTrack nextTrack, bool forward, bool nextForward)
         {
             if (track == null || nextTrack == null)
-                return false;
+                return 120f;
 
             Junction junction = forward ? track.outJunction : track.inJunction;
             if (junction == null)
-                return false;
+                return 120f;
 
-            return junction.inBranch?.track == nextTrack
+            bool connected = junction.inBranch?.track == nextTrack
                 || junction.outBranches.Any(b => b?.track == nextTrack);
+            if (!connected)
+                return 120f;
+
+            float angle = Vector2.Angle(GetTravelTangent(track, forward, exit: true), GetTravelTangent(nextTrack, nextForward, exit: false));
+            if (angle <= 6f) return 120f;
+            if (angle <= 12f) return 80f;
+            if (angle <= 18f) return 60f;
+            if (angle <= 26f) return 50f;
+            if (angle <= 36f) return 40f;
+            return 30f;
+        }
+
+        private static Vector2 GetTravelTangent(RailTrack track, bool forward, bool exit)
+        {
+            if (track?.curve == null)
+                return Vector2.right;
+
+            float t = forward
+                ? (exit ? 1f : 0f)
+                : (exit ? 0f : 1f);
+            Vector3 tangent = track.curve.GetTangentAt(t);
+            if (!forward)
+                tangent = -tangent;
+
+            Vector2 result = new Vector2(tangent.x, tangent.z);
+            return result.sqrMagnitude > Mathf.Epsilon ? result.normalized : Vector2.right;
         }
 
         private static float ApplySpeedLimitMargin(float speedLimit)
