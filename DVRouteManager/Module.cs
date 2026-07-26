@@ -24,7 +24,7 @@ namespace DVRouteManager
 #endif
     static class Module
     {
-        public const string BUILD = "b059";
+        public const string BUILD = "b060";
         private const string AUDIO_DIRECTORY = "audio\\";
         public static UnityModManager.ModEntry mod;
         public static Settings settings;
@@ -114,7 +114,6 @@ namespace DVRouteManager
                 ActiveRoute = new ActiveRoute();
 
                 modEntry.Logger.Log($"RouteManager initialized build={Module.BUILD}");
-                Terminal.Log($"[DVRouteManager] build={Module.BUILD}");
             }
             catch (Exception exc)
             {

@@ -13,7 +13,7 @@ A [Derail Valley](https://store.steampowered.com/app/588030/Derail_Valley/) mod 
 
 The `Debug` branch contains the in-progress **AI speed limit overhaul**. It is currently the branch used for live testing the autonomous driver speed-limit behaviour.
 
-Current debug build marker: **b059**.
+Current debug build marker: **b060**.
 
 ### AI Speed Limit System (WIP)
 
@@ -49,8 +49,9 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Turnout speed lookahead: route transitions through junctions now use the actual path angle across the switch to choose a cap, so straight-through moves can stay fast while sharper diverging moves slow before the turnout
 - DM3 brake release fix: non-self-lapping cruise braking now commands explicit Release when no longer overspeeding instead of decaying through Hold and snapping back to Apply
 - Yard reverse safety: before changing direction, the AI checks the coupler on the side that would become the leading end; if another coupler is within 12 m it keeps the current direction and continues at normal AI target speed instead of reversing into the cars
-- Load hardening: missing debug audio files no longer throw startup exceptions, and the update check now has a short timeout
+- Load hardening: missing debug audio files no longer throw startup exceptions, the update check now has a short timeout, and startup no longer writes to CommandTerminal before the terminal exists
 - DriverAssist compatibility: DriverAssist job-window registration exceptions from unsupported PassengerJobs task structures are suppressed so loading can continue
+- DriverAssist load compatibility: DriverAssist `ChangeCar` `KeyNotFoundException` errors from unsupported locomotives such as `LocoSteamHeavy` are suppressed so loading can finish instead of failing around the 93%/loading-finished stage
 - Freight haul route preference: freight haul now uses `OnlyIfNeeded` reversing so it takes a forward/no-reverse route first and only reverses when no forward route can be found
 - Loco AI route driving: the AI menu now has **Drive active route**, so an already-created/flipped/inspected route can be driven without picking a new destination
 - AI route flipping: the Loco AI menu now has **Flip active route**, which quiet-stops any current AI drive, flips the active route direction, and returns to the AI menu; Drive active route rebuilds a fresh AI tracker before starting
@@ -75,13 +76,15 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - The AI now follows sign-derived limits with a fixed 5 km/h margin and DriverAssist-style controller protections, but braking and overspeed behaviour still needs testing across heavier consists, gradients, and poor adhesion
 - Freight haul AI is not production-ready yet; speed-limit tuning is still in progress and heavy trains may still derail
 - Yard reverse safety was added in b021/b022 but has not been live-tested yet
-- If loading still sometimes sticks at 93%, check `UnityModManager/Log.txt`; b023 removes Route Manager's known missing-audio startup exceptions and limits its update check wait
+- If loading still sometimes sticks at 93%, check `Player.log` and `UnityModManager/Log.txt`; the most recent captured run reached `[Loading] Done`, but DriverAssist then threw in `ChangeCar(LocoSteamHeavy)` during `OnLoadingFinished`
 - b024 suppresses the DriverAssist `OnRegisterJob` exception seen in `Player.log` when it cannot parse a PassengerJobs nested task
+- b060 suppresses DriverAssist `ChangeCar` `KeyNotFoundException` errors from unsupported locomotive keys such as `LocoSteamHeavy`
 - Comms Radio reload is supported for testing, but a full game restart is still the safest way to confirm a clean mod load after larger code changes
 
 ### Next Test TODO
 
-- Reload into **b059** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b060** and confirm the Comms Radio build marker updates after UMM reload
+- Check the next `Player.log`: confirm RouteManager no longer throws from `CommandTerminal.Terminal.Log` during `Module.Load`, and DriverAssist no longer breaks loading with `ChangeCar(LocoSteamHeavy)` `KeyNotFoundException`
 - Test Route to refuel: with a diesel loco confirm it offers Diesel fuel; with steam confirm it offers Water and Coal; each should build a route to the nearest matching point
 - Re-test Route to refuel -> Water: confirm it no longer shows `Value cannot be null. Parameter name: key` and either builds a route or shows a clean route-not-found message
 - Test Loco AI -> Drive active route: create a normal route first, start it from the AI menu, and confirm it drives the existing route rather than computing a new destination
@@ -118,12 +121,13 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b059`
+- Current debug build marker: `b060`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b059` so DM3 brake release, geometry-based turnout speed lookahead, steam tender light-engine detection, steam light-engine independent braking, refuel route null-key hardening, non-self-lapping brake notch snapping, hardened siding clearance, hot-brake speed reduction, SteamCruiseControl-style pulse/heat/cylinder-release braking, non-self-lapping service-brake smoothing, steam service-brake smoothing, light-engine destination roll-in, SteamCruiseControl-style signed steam reverse target plus cutoff lock/snap, steam route-start cutoff direction, AI no-route safety, AI-menu flip/drive tracker rebuild, refuel routing, the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, DE6 throttle/brake smoothing, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, loco-end route starts, steam AI direction fix, SteamCruiseControl-informed steam drive, capped DM3 reverse braking, 65 km/h DM3 speed cap, destination roll-in braking, destination anti-stall recovery, and rear-end based destination siding clearance are active
+- Next test should start by reloading into `b060` so startup terminal hardening, DriverAssist `ChangeCar` load compatibility, DM3 brake release, geometry-based turnout speed lookahead, steam tender light-engine detection, steam light-engine independent braking, refuel route null-key hardening, non-self-lapping brake notch snapping, hardened siding clearance, hot-brake speed reduction, SteamCruiseControl-style pulse/heat/cylinder-release braking, non-self-lapping service-brake smoothing, steam service-brake smoothing, light-engine destination roll-in, SteamCruiseControl-style signed steam reverse target plus cutoff lock/snap, steam route-start cutoff direction, AI no-route safety, AI-menu flip/drive tracker rebuild, refuel routing, the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, DE6 throttle/brake smoothing, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, loco-end route starts, steam AI direction fix, SteamCruiseControl-informed steam drive, capped DM3 reverse braking, 65 km/h DM3 speed cap, destination roll-in braking, destination anti-stall recovery, and rear-end based destination siding clearance are active
 - Recent important commits:
+  - b060 - harden startup against early terminal logging and DriverAssist ChangeCar exceptions
   - b059 - force non-self-lapping DM3 brake release when speed correction ends
   - b058 - make turnout speed cap depend on route angle
   - b057 - treat steam tender-only consists as light engine for braking
