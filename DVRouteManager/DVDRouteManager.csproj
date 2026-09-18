@@ -161,6 +161,7 @@
     <Compile Include="Compatibility\DVSignalsCompatibility.cs" />
     <Compile Include="Compatibility\DoubleTrackCompatibility.cs" />
     <Compile Include="CommsRadio\RouteManagerStates.cs" />
+    <Compile Include="ExperimentalMultiUnitController.cs" />
     <Compile Include="LocoCruiseControl.cs" />
     <Compile Include="LocoAI.cs" />
     <Compile Include="Extensions\GameObjectExtension.cs" />

@@ -54,6 +54,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - DriverAssist load compatibility: DriverAssist `ChangeCar` `KeyNotFoundException` errors from unsupported locomotives such as `LocoSteamHeavy` are suppressed so loading can finish instead of failing around the 93%/loading-finished stage
 - Optional DVSignals support: the AI discovers route-facing signals at runtime, wakes the next signal, reserves its route, obeys stop/restricted aspects with braking curves, and releases reservations after passing or stopping; DVSignals remains optional
 - Optional DoubleTrack support: A* recognises `DoubleTrack`/`DT-` track sections, prefers paired right-hand-running lanes, penalises wrong-line moves and crossovers, and still uses the existing occupancy checks to select a clear alternative
+- Experimental multi-unit AI: a default-off UMM option discovers secondary locomotives in the lead AI locomotive's actual trainset, mirrors throttle/dynamic/independent brake/sander controls, corrects reverser or cutoff for opposite-facing units, verifies writes with `MUOverride`, avoids duplicate control owners, and applies a consist-wide DM3 speed cap; the train brake remains controlled only by the lead AI
 - Freight haul route preference: freight haul now uses `OnlyIfNeeded` reversing so it takes a forward/no-reverse route first and only reverses when no forward route can be found
 - Loco AI route driving: the AI menu now has **Drive active route**, so an already-created/flipped/inspected route can be driven without picking a new destination
 - AI route flipping: the Loco AI menu now has **Flip active route**, which quiet-stops any current AI drive, flips the active route direction, and returns to the AI menu; Drive active route rebuilds a fresh AI tracker before starting
@@ -85,7 +86,10 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Next Test TODO
 
-- Reload into **b061** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b062** and confirm the Comms Radio build marker updates after UMM reload
+- Confirm **Enable multi-unit AI control (testing only)** is visible in UMM and remains off by default
+- When ready to test, enable multi-unit AI with two attached locomotives facing the same direction, then repeat with the rear locomotive facing the opposite direction; confirm both pull the route direction and the train brake is not being fought by secondary units
+- Disable multi-unit AI while stopped and confirm a subsequent AI run controls only the selected lead locomotive
 - With DVSignals installed, approach clear, restricted/yellow, distant-warning and stop/red aspects; confirm the AI logs the aspect and distance, slows before restrictions, stops about 20 m before red, and resumes after the aspect clears
 - With DVSignals installed, stop/dismiss the AI and confirm its signal route reservation clears instead of leaving the signal locked
 - With DoubleTrack installed, build routes in both directions and confirm the path normally chooses the right-hand line, avoids unnecessary crossovers, and uses the other line when the preferred route is occupied
@@ -126,12 +130,13 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b061`
+- Current debug build marker: `b062`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b061`; DVSignals aspect braking/reservations and DoubleTrack lane selection are new and require live testing with those mods installed, alongside the existing b060 startup and DriverAssist checks
+- Next test should start by reloading into `b062`; experimental multi-unit AI must remain disabled until specifically testing it, while DVSignals aspect braking/reservations and DoubleTrack lane selection still require live testing with those mods installed
 - Recent important commits:
+  - b062 - add default-off experimental same-train multi-unit AI control
   - b061 - add optional DVSignals aspect/reservation support and DoubleTrack-aware routing
   - b060 - harden startup against early terminal logging and DriverAssist ChangeCar exceptions
   - b059 - force non-self-lapping DM3 brake release when speed correction ends

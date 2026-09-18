@@ -24,7 +24,7 @@ namespace DVRouteManager
 #endif
     static class Module
     {
-        public const string BUILD = "b061";
+        public const string BUILD = "b062";
         private const string AUDIO_DIRECTORY = "audio\\";
         public static UnityModManager.ModEntry mod;
         public static Settings settings;
@@ -183,6 +183,13 @@ namespace DVRouteManager
                 if (GUILayout.Toggle(settings.ReversingStrategy == strategy, strategy.ToString()))
                     settings.ReversingStrategy = strategy;
             }
+
+            GUILayout.Space(10f);
+            GUILayout.Label("Experimental:");
+            settings.EnableExperimentalMultiUnitAI = GUILayout.Toggle(
+                settings.EnableExperimentalMultiUnitAI,
+                "Enable multi-unit AI control (testing only)");
+            GUILayout.Label("Controls attached locomotives in the same trainset. Disabled by default.");
         }
 
         public static IEnumerator CheckUpdates()

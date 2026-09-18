@@ -39,6 +39,7 @@ namespace DVRouteManager
         private bool _reverseBlockedLogged = false;
         private bool _skipFinalBrakeOnStop = false;
         private readonly DVSignalsCompatibility _signals = new DVSignalsCompatibility();
+        private readonly ExperimentalMultiUnitController _multiUnit;
 #if DEBUG
         private string _lastSignalConstraint;
 #endif
@@ -505,6 +506,7 @@ namespace DVRouteManager
         public LocoAI(ILocomotiveRemoteControl remoteControl, TrainCar car) :
             base(remoteControl, car)
         {
+            _multiUnit = new ExperimentalMultiUnitController(car);
         }
 
         // Disables DriverAssist and SteamCruiseControl via reflection so they don't fight us.
@@ -785,7 +787,9 @@ namespace DVRouteManager
                     destinationStallTime = 0f;
                 }
 
+                TargetSpeed = _multiUnit.ApplyConsistSpeedCap(TargetSpeed);
                 targetAcceleration = MaintainSpeed(targetAcceleration, timeDelta, speed, acceleration);
+                _multiUnit.SyncFromLead();
 
                 prevSpeed = speed;
 
@@ -1039,6 +1043,7 @@ namespace DVRouteManager
             _freightHaulActive = false;
             _skipFinalBrakeOnStop = !applyFinalBrake;
             _signals.ReleaseAll();
+            _multiUnit.StopSecondaryPower();
             Stop();
         }
 
@@ -1049,6 +1054,7 @@ namespace DVRouteManager
         {
             _freightHaulActive = false; // abort any existing haul
             _signals.ReleaseAll();
+            _multiUnit.StopSecondaryPower();
             Stop();
             Module.StartCoroutine(FreightHaulCoroutine(task, loco));
         }

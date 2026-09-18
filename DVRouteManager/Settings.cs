@@ -12,6 +12,8 @@ namespace DVRouteManager
     {
         [Header("Routing")]
         public ReversingStrategy ReversingStrategy = ReversingStrategy.ChooseBest;
+        [Header("Experimental")]
+        public bool EnableExperimentalMultiUnitAI = false;
         [Header("Keys")]
         public KeyBinding TrainEndAlarm = new KeyBinding() { keyCode = KeyCode.N };
         public void OnChange()
