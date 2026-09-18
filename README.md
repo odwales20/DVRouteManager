@@ -86,7 +86,7 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Next Test TODO
 
-- Reload into **b062** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b063** and confirm the Comms Radio build marker updates after UMM reload
 - Confirm **Enable multi-unit AI control (testing only)** is visible in UMM and remains off by default
 - When ready to test, enable multi-unit AI with two attached locomotives facing the same direction, then repeat with the rear locomotive facing the opposite direction; confirm both pull the route direction and the train brake is not being fought by secondary units
 - Disable multi-unit AI while stopped and confirm a subsequent AI run controls only the selected lead locomotive
@@ -130,13 +130,14 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b062`
+- Current debug build marker: `b063`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b062`; experimental multi-unit AI must remain disabled until specifically testing it, while DVSignals aspect braking/reservations and DoubleTrack lane selection still require live testing with those mods installed
+- Next test should start by reloading into `b063`; confirm the radio audio cues now play, experimental multi-unit AI must remain disabled until specifically testing it, while DVSignals aspect braking/reservations and DoubleTrack lane selection still require live testing with those mods installed
 - Recent important commits:
   - b062 - add default-off experimental same-train multi-unit AI control
+  - b063 - deploy audio clips with Debug builds so radio cues can load in game
   - b061 - add optional DVSignals aspect/reservation support and DoubleTrack-aware routing
   - b060 - harden startup against early terminal logging and DriverAssist ChangeCar exceptions
   - b059 - force non-self-lapping DM3 brake release when speed correction ends

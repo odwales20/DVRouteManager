@@ -217,6 +217,8 @@ IF EXIST %25pdb2mdb%25 %25pdb2mdb%25 DVRouteManager.dll
 
 if not exist "$(DVInstallPath)Mods\$(SolutionName)\" mkdir "$(DVInstallPath)Mods\$(SolutionName)\"
 copy $(TargetPath) "$(DVInstallPath)Mods\$(SolutionName)\"
+if not exist "$(DVInstallPath)Mods\$(SolutionName)\audio\" mkdir "$(DVInstallPath)Mods\$(SolutionName)\audio\"
+copy /Y "$(ProjectDir)Resources\audio\*.wav" "$(DVInstallPath)Mods\$(SolutionName)\audio\"
 REM copy $(SolutionDir)Info.json "$(DVInstallPath)Mods\$(SolutionName)\"
 if $(Configuration) == Release (
 REM  powershell Compress-Archive -DestinationPath '$(SolutionDir)$(SolutionName).zip' -Path (Get-ChildItem -Path '$(DVInstallPath)Mods\$(SolutionName)\' -Exclude $exclude) -Force
