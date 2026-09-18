@@ -268,7 +268,9 @@ namespace DVRouteManager
                     }
 
                     // compute exact cost
-                    double newCost = costSoFar[current] + neighborLogic.length / neighbor.GetAverageSpeed();
+                    double edgeCost = neighborLogic.length / neighbor.GetAverageSpeed();
+                    edgeCost = Compatibility.DoubleTrackCompatibility.AdjustRouteCost(prev, current, neighbor, edgeCost);
+                    double newCost = costSoFar[current] + edgeCost;
 
                     // Penalise routing through classified yard sidings (storage/in/out/loading).
                     // Uses YardTracksOrganizer which tracks job reservations — this means tracks

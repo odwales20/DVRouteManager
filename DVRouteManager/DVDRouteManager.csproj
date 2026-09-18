@@ -158,6 +158,8 @@
     <Compile Include="ControlsOverriderRemote.cs" />
     <Compile Include="AudioUtils.cs" />
     <Compile Include="Compatibility\DriverAssistCompatibilityPatch.cs" />
+    <Compile Include="Compatibility\DVSignalsCompatibility.cs" />
+    <Compile Include="Compatibility\DoubleTrackCompatibility.cs" />
     <Compile Include="CommsRadio\RouteManagerStates.cs" />
     <Compile Include="LocoCruiseControl.cs" />
     <Compile Include="LocoAI.cs" />

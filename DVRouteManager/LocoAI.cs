@@ -10,6 +10,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
+using DVRouteManager.Compatibility;
 
 namespace DVRouteManager
 {
@@ -37,6 +38,10 @@ namespace DVRouteManager
         public bool IsFreightHaulActive => _freightHaulActive;
         private bool _reverseBlockedLogged = false;
         private bool _skipFinalBrakeOnStop = false;
+        private readonly DVSignalsCompatibility _signals = new DVSignalsCompatibility();
+#if DEBUG
+        private string _lastSignalConstraint;
+#endif
 
         // Per-instance cache: per-300m-segment speed profiles, mirroring SignPlacer.GetTrackSigns.
         // null entry = track is excluded (ShouldIncludeTrack / noSignsTrackNameMarks) -> 120 km/h.
@@ -562,6 +567,7 @@ namespace DVRouteManager
 
         public bool StartAI(RouteTracker routeTracker)
         {
+            _signals.ReleaseAll();
             if (!IsRouteUsableForAI(routeTracker))
             {
                 Terminal.Log("AI start refused: no usable active route");
@@ -702,13 +708,13 @@ namespace DVRouteManager
                     else
                     {
                         var currentPosition = GetCurrentTrackPosition();
-                        TargetSpeed = currentPosition.HasValue ? GetDestinationApproachSpeed(GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance)) : 0f;
+                        TargetSpeed = currentPosition.HasValue ? GetPlannedTargetSpeed(currentPosition.Value, speed) : 0f;
                     }
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.OnStart)
                 {
                     var currentPosition = GetCurrentTrackPosition();
-                    TargetSpeed = currentPosition.HasValue ? GetDestinationApproachSpeed(GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance)) : 0f;
+                    TargetSpeed = currentPosition.HasValue ? GetPlannedTargetSpeed(currentPosition.Value, speed) : 0f;
                 }
                 else if (RouteTracker.TrackState == RouteTracker.TrackingState.StopTrainAfterSwitch)
                 {
@@ -744,7 +750,7 @@ namespace DVRouteManager
                             shouldreverse = false;
                             yield return ReleaseAllBrakes();
                             var currentPosition = GetCurrentTrackPosition();
-                            TargetSpeed = currentPosition.HasValue ? GetDestinationApproachSpeed(GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance)) : TARGET_SPEED_DEFAULT;
+                            TargetSpeed = currentPosition.HasValue ? GetPlannedTargetSpeed(currentPosition.Value, speed) : TARGET_SPEED_DEFAULT;
                         }
                         else
                         {
@@ -752,7 +758,7 @@ namespace DVRouteManager
                             shouldreverse = false;
                             _reverseBlockedLogged = false;
                             var currentPosition = GetCurrentTrackPosition();
-                            TargetSpeed = currentPosition.HasValue ? GetDestinationApproachSpeed(GetLookaheadSpeedLimit(currentPosition.Value.track, speed, currentPosition.Value.distance)) : 0f;
+                            TargetSpeed = currentPosition.HasValue ? GetPlannedTargetSpeed(currentPosition.Value, speed) : 0f;
                         }
                     }
                 }
@@ -828,6 +834,7 @@ namespace DVRouteManager
                 }
             }
             _skipFinalBrakeOnStop = false;
+            _signals.ReleaseAll();
 
             if (RouteTracker != Module.ActiveRoute?.RouteTracker)
                 RouteTracker.Dispose();
@@ -882,6 +889,24 @@ namespace DVRouteManager
             remoteControl.UpdateReverser(toggle);
             SnapSteamCutoffForDirection(forward);
             Terminal.Log($"AI initial direction: {(forward ? "forward" : "reverse")} for route start");
+        }
+
+        private float GetPlannedTargetSpeed(CurrentTrackPosition position, float currentSpeedKmh)
+        {
+            float target = GetDestinationApproachSpeed(GetLookaheadSpeedLimit(position.track, currentSpeedKmh, position.distance));
+            SignalSpeedConstraint? signal = _signals.GetConstraint(RouteTracker?.Route, position.track, position.distance, target);
+            if (!signal.HasValue)
+                return target;
+
+#if DEBUG
+            string description = $"{signal.Value.Aspect}:{signal.Value.DistanceMeters:0}:{signal.Value.TargetSpeedKmh:0}";
+            if (description != _lastSignalConstraint)
+            {
+                Terminal.Log($"[Signals] {signal.Value.Aspect} {signal.Value.DistanceMeters:0}m ahead -> target {signal.Value.TargetSpeedKmh:0.0} km/h");
+                _lastSignalConstraint = description;
+            }
+#endif
+            return Mathf.Min(target, signal.Value.TargetSpeedKmh);
         }
 
         private bool ShouldStartForwardForRoute()
@@ -1013,6 +1038,7 @@ namespace DVRouteManager
         {
             _freightHaulActive = false;
             _skipFinalBrakeOnStop = !applyFinalBrake;
+            _signals.ReleaseAll();
             Stop();
         }
 
@@ -1022,6 +1048,7 @@ namespace DVRouteManager
         public void StartFreightHaul(RouteTask task, TrainCar loco)
         {
             _freightHaulActive = false; // abort any existing haul
+            _signals.ReleaseAll();
             Stop();
             Module.StartCoroutine(FreightHaulCoroutine(task, loco));
         }

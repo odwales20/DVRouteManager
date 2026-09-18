@@ -52,6 +52,8 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 - Load hardening: missing debug audio files no longer throw startup exceptions, the update check now has a short timeout, and startup no longer writes to CommandTerminal before the terminal exists
 - DriverAssist compatibility: DriverAssist job-window registration exceptions from unsupported PassengerJobs task structures are suppressed so loading can continue
 - DriverAssist load compatibility: DriverAssist `ChangeCar` `KeyNotFoundException` errors from unsupported locomotives such as `LocoSteamHeavy` are suppressed so loading can finish instead of failing around the 93%/loading-finished stage
+- Optional DVSignals support: the AI discovers route-facing signals at runtime, wakes the next signal, reserves its route, obeys stop/restricted aspects with braking curves, and releases reservations after passing or stopping; DVSignals remains optional
+- Optional DoubleTrack support: A* recognises `DoubleTrack`/`DT-` track sections, prefers paired right-hand-running lanes, penalises wrong-line moves and crossovers, and still uses the existing occupancy checks to select a clear alternative
 - Freight haul route preference: freight haul now uses `OnlyIfNeeded` reversing so it takes a forward/no-reverse route first and only reverses when no forward route can be found
 - Loco AI route driving: the AI menu now has **Drive active route**, so an already-created/flipped/inspected route can be driven without picking a new destination
 - AI route flipping: the Loco AI menu now has **Flip active route**, which quiet-stops any current AI drive, flips the active route direction, and returns to the AI menu; Drive active route rebuilds a fresh AI tracker before starting
@@ -83,7 +85,10 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 
 ### Next Test TODO
 
-- Reload into **b060** and confirm the Comms Radio build marker updates after UMM reload
+- Reload into **b061** and confirm the Comms Radio build marker updates after UMM reload
+- With DVSignals installed, approach clear, restricted/yellow, distant-warning and stop/red aspects; confirm the AI logs the aspect and distance, slows before restrictions, stops about 20 m before red, and resumes after the aspect clears
+- With DVSignals installed, stop/dismiss the AI and confirm its signal route reservation clears instead of leaving the signal locked
+- With DoubleTrack installed, build routes in both directions and confirm the path normally chooses the right-hand line, avoids unnecessary crossovers, and uses the other line when the preferred route is occupied
 - Check the next `Player.log`: confirm RouteManager no longer throws from `CommandTerminal.Terminal.Log` during `Module.Load`, and DriverAssist no longer breaks loading with `ChangeCar(LocoSteamHeavy)` `KeyNotFoundException`
 - Test Route to refuel: with a diesel loco confirm it offers Diesel fuel; with steam confirm it offers Water and Coal; each should build a route to the nearest matching point
 - Re-test Route to refuel -> Water: confirm it no longer shows `Value cannot be null. Parameter name: key` and either builds a route or shows a clean route-not-found message
@@ -121,12 +126,13 @@ The new system mirrors the game's own `SignPlacer.GetTrackSigns` pipeline closel
 ### Shutdown Handoff
 
 - Current branch: `Debug`, pushed to `origin/Debug`
-- Current debug build marker: `b060`
+- Current debug build marker: `b061`
 - Current deployed DLL was built from this branch and copied to the local Derail Valley mod folder by the Debug build
 - Last known live test before reloading: light engine completed an end-to-end map run without the 5 km/h safety margin; it sounded close to the limit on curves but did not derail
 - b022 yard reverse safety has not been tested yet
-- Next test should start by reloading into `b060` so startup terminal hardening, DriverAssist `ChangeCar` load compatibility, DM3 brake release, geometry-based turnout speed lookahead, steam tender light-engine detection, steam light-engine independent braking, refuel route null-key hardening, non-self-lapping brake notch snapping, hardened siding clearance, hot-brake speed reduction, SteamCruiseControl-style pulse/heat/cylinder-release braking, non-self-lapping service-brake smoothing, steam service-brake smoothing, light-engine destination roll-in, SteamCruiseControl-style signed steam reverse target plus cutoff lock/snap, steam route-start cutoff direction, AI no-route safety, AI-menu flip/drive tracker rebuild, refuel routing, the 5 km/h margin, comm radio reload cleanup, DriverAssist-style protection layer, DM3-specific protection, DE6 throttle/brake smoothing, yard reverse safety, load hardening, DriverAssist job-registration compatibility patch, freight haul no-reverse preference, Drive active route AI option, loco-end route starts, steam AI direction fix, SteamCruiseControl-informed steam drive, capped DM3 reverse braking, 65 km/h DM3 speed cap, destination roll-in braking, destination anti-stall recovery, and rear-end based destination siding clearance are active
+- Next test should start by reloading into `b061`; DVSignals aspect braking/reservations and DoubleTrack lane selection are new and require live testing with those mods installed, alongside the existing b060 startup and DriverAssist checks
 - Recent important commits:
+  - b061 - add optional DVSignals aspect/reservation support and DoubleTrack-aware routing
   - b060 - harden startup against early terminal logging and DriverAssist ChangeCar exceptions
   - b059 - force non-self-lapping DM3 brake release when speed correction ends
   - b058 - make turnout speed cap depend on route angle
